@@ -1,0 +1,29 @@
+# Source files
+src/**
+*.ts
+!out/**
+
+# Config files
+.vscode/**
+.eslintrc.json
+.prettierrc
+tsconfig.json
+.gitignore
+
+# Development files
+node_modules/**
+.vscode-test/**
+*.vsix
+
+# Documentation (keep README)
+CHANGELOG.md
+
+# Git
+.git/**
+.github/**
+
+# Other
+**/*.map
+*.log
+.DS_Store
+Thumbs.db

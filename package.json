@@ -1,0 +1,146 @@
+{
+  "name": "mdx-exporter-lite",
+  "displayName": "MDX Exporter Lite",
+  "description": "Preview and export Markdown files to PDF and DOCX using Pandoc",
+  "version": "0.0.1",
+  "publisher": "your-publisher",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-publisher/mdx-exporter-lite"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Formatters"
+  ],
+  "keywords": [
+    "markdown",
+    "pdf",
+    "docx",
+    "export",
+    "pandoc",
+    "preview"
+  ],
+  "icon": "resources/icon.png",
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:markdown"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mdxExporter.openPreviewToSide",
+        "title": "MDX: Open Preview to Side",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "mdxExporter.exportPdf",
+        "title": "MDX: Export to PDF",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "mdxExporter.exportDocx",
+        "title": "MDX: Export to DOCX",
+        "icon": "$(file-text)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "mdxExporter.openPreviewToSide",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdxExporter.exportPdf",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdxExporter.exportDocx",
+          "when": "editorLangId == markdown"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "mdxExporter.exportPdf",
+          "when": "resourceLangId == markdown",
+          "group": "mdxExporter@1"
+        },
+        {
+          "command": "mdxExporter.exportDocx",
+          "when": "resourceLangId == markdown",
+          "group": "mdxExporter@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "mdxExporter.openPreviewToSide",
+          "when": "editorLangId == markdown",
+          "group": "navigation@1"
+        },
+        {
+          "command": "mdxExporter.exportPdf",
+          "when": "editorLangId == markdown",
+          "group": "navigation@2"
+        },
+        {
+          "command": "mdxExporter.exportDocx",
+          "when": "editorLangId == markdown",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MDX Exporter Lite",
+      "properties": {
+        "mdxExporter.pandocPath": {
+          "type": "string",
+          "default": "pandoc",
+          "description": "Path to the Pandoc executable. Leave as 'pandoc' to use system PATH."
+        },
+        "mdxExporter.outputDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Default output directory for exported files. Leave empty to output alongside the source file."
+        },
+        "mdxExporter.pdfEngine": {
+          "type": "string",
+          "default": "",
+          "description": "PDF engine for Pandoc (e.g., 'wkhtmltopdf', 'xelatex', 'pdflatex'). Leave empty for Pandoc default."
+        },
+        "mdxExporter.referenceDocx": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a reference DOCX file to use as a template for DOCX exports."
+        },
+        "mdxExporter.openAfterExport": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open the exported file after successful export."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "lint:fix": "eslint src --ext ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.2"
+  }
+}
