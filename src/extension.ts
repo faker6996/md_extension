@@ -1,26 +1,68 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
+import * as os from 'os';
+import { PaperFormat } from 'puppeteer-core';
+import {
+  markdownToHtml,
+  htmlToPdf,
+  markdownToDocx,
+  findChromePath,
+  PdfOptions,
+  DocxOptions,
+} from './markdown-converter';
 
 // Configuration interface
 interface MdxExporterConfig {
-  pandocPath: string;
   outputDirectory: string;
-  pdfEngine: string;
-  referenceDocx: string;
   openAfterExport: boolean;
+  saveBeforeExport: boolean;
+  formatBeforeExport: boolean;
+  pdfPageFormat: PaperFormat;
+  pdfMargin: string;
+}
+
+let outputChannel: vscode.OutputChannel | undefined;
+
+function logLine(message: string): void {
+  outputChannel?.appendLine(message);
+}
+
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function expandUserPath(value: string): string {
+  const sanitized = stripWrappingQuotes(value);
+  if (!sanitized) {
+    return sanitized;
+  }
+  if (sanitized === '~') {
+    return os.homedir();
+  }
+  if (sanitized.startsWith('~/') || sanitized.startsWith('~\\')) {
+    return path.join(os.homedir(), sanitized.slice(2));
+  }
+  return sanitized;
 }
 
 // Get extension configuration
 function getConfig(): MdxExporterConfig {
   const config = vscode.workspace.getConfiguration('mdxExporter');
   return {
-    pandocPath: config.get<string>('pandocPath', 'pandoc'),
-    outputDirectory: config.get<string>('outputDirectory', ''),
-    pdfEngine: config.get<string>('pdfEngine', ''),
-    referenceDocx: config.get<string>('referenceDocx', ''),
+    outputDirectory: expandUserPath(config.get<string>('outputDirectory', '')),
     openAfterExport: config.get<boolean>('openAfterExport', true),
+    saveBeforeExport: config.get<boolean>('saveBeforeExport', true),
+    formatBeforeExport: config.get<boolean>('formatBeforeExport', true),
+    pdfPageFormat: config.get<PaperFormat>('pdfPageFormat', 'A4'),
+    pdfMargin: config.get<string>('pdfMargin', '20mm'),
   };
 }
 
@@ -42,8 +84,8 @@ function getActiveMarkdownFile(): vscode.Uri | undefined {
   return undefined;
 }
 
-// Ensure file is saved before export
-async function ensureFileSaved(document: vscode.TextDocument): Promise<boolean> {
+// Ensure file is saved before export (prompt-based)
+async function ensureFileSavedWithPrompt(document: vscode.TextDocument): Promise<boolean> {
   if (document.isDirty) {
     const choice = await vscode.window.showWarningMessage(
       'The file has unsaved changes. Save before exporting?',
@@ -58,124 +100,100 @@ async function ensureFileSaved(document: vscode.TextDocument): Promise<boolean> 
   return true;
 }
 
-// Check if Pandoc is available
-async function checkPandocAvailable(pandocPath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const proc = spawn(pandocPath, ['--version'], { shell: true });
-    proc.on('error', () => resolve(false));
-    proc.on('close', (code) => resolve(code === 0));
-  });
+// Check if Chrome/Chromium is available
+function checkChromeAvailable(): boolean {
+  const chromePath = findChromePath();
+  return chromePath !== null;
 }
 
-// Get platform-specific reveal command
-function getRevealCommand(): string {
-  switch (process.platform) {
-    case 'darwin':
-      return 'open -R';
-    case 'win32':
-      return 'explorer /select,';
-    default:
-      return 'xdg-open';
-  }
-}
+// Show Chrome installation instructions
+async function showChromeInstallInstructions(): Promise<void> {
+  const message =
+    'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge for PDF export.';
+  const choice = await vscode.window.showErrorMessage(message, 'Download Chrome', 'Dismiss');
 
-// Show Pandoc installation instructions
-async function showPandocInstallInstructions(): Promise<void> {
-  const message = 'Pandoc is not found. Please install Pandoc to use export features.';
-  const choice = await vscode.window.showErrorMessage(message, 'Installation Guide', 'Dismiss');
-
-  if (choice === 'Installation Guide') {
-    let url: string;
-    switch (process.platform) {
-      case 'darwin':
-        url = 'https://pandoc.org/installing.html#macos';
-        break;
-      case 'win32':
-        url = 'https://pandoc.org/installing.html#windows';
-        break;
-      default:
-        url = 'https://pandoc.org/installing.html#linux';
-    }
-    await vscode.env.openExternal(vscode.Uri.parse(url));
+  if (choice === 'Download Chrome') {
+    await vscode.env.openExternal(vscode.Uri.parse('https://www.google.com/chrome/'));
   }
 }
 
 // Export format type
 type ExportFormat = 'pdf' | 'docx';
 
-// Build Pandoc arguments
-function buildPandocArgs(
-  inputPath: string,
-  outputPath: string,
-  format: ExportFormat,
-  config: MdxExporterConfig
-): string[] {
-  const args: string[] = [inputPath, '-o', outputPath];
+async function formatDocumentIfPossible(document: vscode.TextDocument): Promise<void> {
+  const editorConfig = vscode.workspace.getConfiguration('editor', document.uri);
+  const options: vscode.FormattingOptions = {
+    tabSize: Number(editorConfig.get<number>('tabSize', 2)),
+    insertSpaces: Boolean(editorConfig.get<boolean>('insertSpaces', true)),
+  };
 
-  // Add PDF engine if specified (only for PDF)
-  if (format === 'pdf' && config.pdfEngine) {
-    args.push('--pdf-engine', config.pdfEngine);
+  const edits =
+    (await vscode.commands.executeCommand<vscode.TextEdit[]>(
+      'vscode.executeFormatDocumentProvider',
+      document.uri,
+      options
+    )) ?? [];
+
+  if (!edits.length) {
+    return;
   }
 
-  // Add reference DOCX if specified (only for DOCX)
-  if (format === 'docx' && config.referenceDocx) {
-    const refDocPath = config.referenceDocx;
-    if (fs.existsSync(refDocPath)) {
-      args.push('--reference-doc', refDocPath);
-    } else {
-      vscode.window.showWarningMessage(
-        `Reference DOCX file not found: ${refDocPath}. Using default template.`
-      );
+  const workspaceEdit = new vscode.WorkspaceEdit();
+  workspaceEdit.set(document.uri, edits);
+  await vscode.workspace.applyEdit(workspaceEdit);
+}
+
+async function prepareDocumentForExport(
+  document: vscode.TextDocument,
+  config: MdxExporterConfig
+): Promise<boolean> {
+  if (config.formatBeforeExport) {
+    try {
+      await formatDocumentIfPossible(document);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logLine(`[format] failed: ${errorMessage}`);
+      void vscode.window.showWarningMessage(`Format before export failed: ${errorMessage}`);
     }
   }
 
-  // Enable standalone mode
-  args.push('-s');
+  if (config.saveBeforeExport) {
+    if (!document.isDirty) {
+      return true;
+    }
+    try {
+      return await document.save();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logLine(`[save] failed: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to save before export: ${errorMessage}`);
+      return false;
+    }
+  }
 
-  return args;
-}
-
-// Run Pandoc export
-async function runPandocExport(
-  inputPath: string,
-  outputPath: string,
-  format: ExportFormat,
-  config: MdxExporterConfig
-): Promise<void> {
-  const args = buildPandocArgs(inputPath, outputPath, format, config);
-  const cwd = path.dirname(inputPath); // Set working directory for relative images
-
-  return new Promise((resolve, reject) => {
-    const proc = spawn(config.pandocPath, args, {
-      cwd,
-      shell: true,
-    });
-
-    let stderr = '';
-
-    proc.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to start Pandoc: ${err.message}`));
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Pandoc exited with code ${code}: ${stderr}`));
-      }
-    });
-  });
+  return await ensureFileSavedWithPrompt(document);
 }
 
 // Get default output path
-function getDefaultOutputPath(inputPath: string, format: ExportFormat, config: MdxExporterConfig): string {
+function getDefaultOutputPath(
+  inputPath: string,
+  format: ExportFormat,
+  config: MdxExporterConfig
+): string {
   const inputDir = path.dirname(inputPath);
   const baseName = path.basename(inputPath, path.extname(inputPath));
-  const outputDir = config.outputDirectory || inputDir;
+  const configuredOutputDir = config.outputDirectory;
+  let outputDir = inputDir;
+
+  if (configuredOutputDir) {
+    if (path.isAbsolute(configuredOutputDir)) {
+      outputDir = configuredOutputDir;
+    } else {
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(inputPath));
+      const baseDir = workspaceFolder?.uri.fsPath ?? inputDir;
+      outputDir = path.resolve(baseDir, configuredOutputDir);
+    }
+  }
   const extension = format === 'pdf' ? '.pdf' : '.docx';
   return path.join(outputDir, baseName + extension);
 }
@@ -207,33 +225,52 @@ async function showSuccessMessage(outputPath: string, config: MdxExporterConfig)
   buttons.push('Reveal in File Explorer');
 
   const choice = await vscode.window.showInformationMessage(
-    `Successfully exported to: ${path.basename(outputPath)}`,
+    `Successfully exported to: ${outputPath}`,
     ...buttons
   );
 
   if (choice === 'Open File') {
     await vscode.env.openExternal(vscode.Uri.file(outputPath));
   } else if (choice === 'Reveal in File Explorer') {
-    const revealCmd = getRevealCommand();
-    if (process.platform === 'linux') {
-      // On Linux, open the containing directory
-      await vscode.env.openExternal(vscode.Uri.file(path.dirname(outputPath)));
-    } else {
-      // On macOS and Windows, use native reveal commands
-      const { exec } = await import('child_process');
-      exec(`${revealCmd} "${outputPath}"`);
-    }
+    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
+  }
+}
+
+// Run export using built-in converters
+async function runExport(
+  inputPath: string,
+  outputPath: string,
+  format: ExportFormat,
+  config: MdxExporterConfig
+): Promise<void> {
+  const content = fs.readFileSync(inputPath, 'utf-8');
+  const baseDir = path.dirname(inputPath);
+
+  if (format === 'pdf') {
+    const html = markdownToHtml(content, baseDir);
+    const pdfOptions: PdfOptions = {
+      format: config.pdfPageFormat,
+      margin: config.pdfMargin,
+      baseDir,
+    };
+    logLine(`[pdf] Converting with options: ${JSON.stringify(pdfOptions)}`);
+    await htmlToPdf(html, outputPath, pdfOptions);
+  } else {
+    const docxOptions: DocxOptions = { baseDir };
+    logLine(`[docx] Converting with options: ${JSON.stringify(docxOptions)}`);
+    await markdownToDocx(content, outputPath, docxOptions);
   }
 }
 
 // Main export function
 async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): Promise<void> {
   const config = getConfig();
+  logLine(`--- Export ${format.toUpperCase()} @ ${new Date().toISOString()} ---`);
 
-  // Check Pandoc availability
-  const pandocAvailable = await checkPandocAvailable(config.pandocPath);
-  if (!pandocAvailable) {
-    await showPandocInstallInstructions();
+  // Check Chrome availability for PDF export
+  if (format === 'pdf' && !checkChromeAvailable()) {
+    logLine('[chrome] not found');
+    await showChromeInstallInstructions();
     return;
   }
 
@@ -249,14 +286,14 @@ async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): P
   }
 
   if (!inputUri) {
-    vscode.window.showErrorMessage('Please open a Markdown file to export.');
+    void vscode.window.showErrorMessage('Please open a Markdown file to export.');
     return;
   }
 
   // Ensure the file is saved
   const document = await vscode.workspace.openTextDocument(inputUri);
-  const saved = await ensureFileSaved(document);
-  if (!saved) {
+  const prepared = await prepareDocumentForExport(document, config);
+  if (!prepared) {
     return;
   }
 
@@ -271,6 +308,15 @@ async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): P
 
   const outputPath = outputUri.fsPath;
 
+  try {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logLine(`[mkdir] failed: ${errorMessage}`);
+    void vscode.window.showErrorMessage(`Failed to create output directory: ${errorMessage}`);
+    return;
+  }
+
   // Run export with progress
   await vscode.window.withProgress(
     {
@@ -280,11 +326,18 @@ async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): P
     },
     async () => {
       try {
-        await runPandocExport(inputPath, outputPath, format, config);
+        await runExport(inputPath, outputPath, format, config);
         await showSuccessMessage(outputPath, config);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        vscode.window.showErrorMessage(`Export failed: ${errorMessage}`);
+        logLine(`[export] failed: ${errorMessage}`);
+        const choice = await vscode.window.showErrorMessage(
+          `Export failed: ${errorMessage}`,
+          'Open Logs'
+        );
+        if (choice === 'Open Logs') {
+          outputChannel?.show(true);
+        }
       }
     }
   );
@@ -294,7 +347,7 @@ async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): P
 async function openPreviewToSide(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !isMarkdownFile(editor.document.uri)) {
-    vscode.window.showErrorMessage('Please open a Markdown file to preview.');
+    void vscode.window.showErrorMessage('Please open a Markdown file to preview.');
     return;
   }
 
@@ -313,6 +366,8 @@ async function exportDocx(resourceUri?: vscode.Uri): Promise<void> {
 
 // Extension activation
 export function activate(context: vscode.ExtensionContext): void {
+  outputChannel = vscode.window.createOutputChannel('MDX Exporter Lite');
+
   // Register commands
   const openPreviewCommand = vscode.commands.registerCommand(
     'mdxExporter.openPreviewToSide',
@@ -330,7 +385,12 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // Add to subscriptions
-  context.subscriptions.push(openPreviewCommand, exportPdfCommand, exportDocxCommand);
+  context.subscriptions.push(
+    outputChannel,
+    openPreviewCommand,
+    exportPdfCommand,
+    exportDocxCommand
+  );
 
   // Log activation
   console.log('MDX Exporter Lite is now active!');

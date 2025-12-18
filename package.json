@@ -1,8 +1,8 @@
 {
   "name": "mdx-exporter-lite",
   "displayName": "MDX Exporter Lite",
-  "description": "Preview and export Markdown files to PDF and DOCX using Pandoc",
-  "version": "0.0.2",
+  "description": "Preview and export Markdown files to PDF and DOCX - No external dependencies required",
+  "version": "0.1.1",
   "publisher": "bachtv",
   "license": "MIT",
   "repository": {
@@ -21,8 +21,8 @@
     "pdf",
     "docx",
     "export",
-    "pandoc",
-    "preview"
+    "preview",
+    "converter"
   ],
   "icon": "resources/icon.png",
   "main": "./out/extension.js",
@@ -95,30 +95,42 @@
     "configuration": {
       "title": "MDX Exporter Lite",
       "properties": {
-        "mdxExporter.pandocPath": {
-          "type": "string",
-          "default": "pandoc",
-          "description": "Path to the Pandoc executable. Leave as 'pandoc' to use system PATH."
-        },
         "mdxExporter.outputDirectory": {
           "type": "string",
           "default": "",
           "description": "Default output directory for exported files. Leave empty to output alongside the source file."
         },
-        "mdxExporter.pdfEngine": {
-          "type": "string",
-          "default": "",
-          "description": "PDF engine for Pandoc (e.g., 'wkhtmltopdf', 'xelatex', 'pdflatex'). Leave empty for Pandoc default."
-        },
-        "mdxExporter.referenceDocx": {
-          "type": "string",
-          "default": "",
-          "description": "Path to a reference DOCX file to use as a template for DOCX exports."
-        },
         "mdxExporter.openAfterExport": {
           "type": "boolean",
           "default": true,
           "description": "Automatically open the exported file after successful export."
+        },
+        "mdxExporter.saveBeforeExport": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save the Markdown file before exporting (no prompt)."
+        },
+        "mdxExporter.formatBeforeExport": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically format the Markdown file (via the configured formatter) before exporting."
+        },
+        "mdxExporter.pdfPageFormat": {
+          "type": "string",
+          "default": "A4",
+          "enum": [
+            "A4",
+            "Letter",
+            "Legal",
+            "A3",
+            "A5"
+          ],
+          "description": "Page format for PDF export."
+        },
+        "mdxExporter.pdfMargin": {
+          "type": "string",
+          "default": "20mm",
+          "description": "Page margin for PDF export (e.g., '20mm', '1in')."
         }
       }
     }
@@ -133,7 +145,13 @@
     "package": "vsce package",
     "publish": "vsce publish"
   },
+  "dependencies": {
+    "markdown-it": "^14.0.0",
+    "docx": "^8.5.0",
+    "puppeteer-core": "^22.0.0"
+  },
   "devDependencies": {
+    "@types/markdown-it": "^14.0.0",
     "@types/node": "^20.10.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",

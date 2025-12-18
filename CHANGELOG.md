@@ -1,33 +1,48 @@
 # Changelog
 
-All notable changes to the "MDX Exporter Lite" extension will be documented in this file.
+All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.1] - 2024-12-16
+## [0.1.0] - 2024-12-18
+
+### 🚀 Major Update - No External Dependencies Required!
+
+#### Changed
+
+- **Removed Pandoc dependency** - No longer requires installing Pandoc or wkhtmltopdf
+- **Built-in PDF generation** - Uses puppeteer-core with system Chrome/Chromium
+- **Built-in DOCX generation** - Uses pure JavaScript docx library
+- Simplified configuration - removed Pandoc-specific settings
+
+#### Added
+
+- New `pdfPageFormat` setting (A4, Letter, Legal, A3, A5)
+- New `pdfMargin` setting for PDF margins
+- Beautiful PDF styling with proper typography
+- DOCX export with Word-compatible formatting
+
+#### Removed
+
+- `pandocPath` setting (no longer needed)
+- `pdfEngine` setting (no longer needed)
+- `referenceDocx` setting (will be re-added in future version)
+
+## [0.0.2] - 2024-12-18
+
+### Fixed
+
+- Removed sensitive information from package
+
+## [0.0.1] - 2024-12-18
 
 ### Added
 
-- Initial release of MDX Exporter Lite
-- **Commands**
-  - `MDX: Open Preview to Side` - Open built-in Markdown preview
-  - `MDX: Export to PDF` - Export Markdown to PDF using Pandoc
-  - `MDX: Export to DOCX` - Export Markdown to Word document using Pandoc
-- **UI Integration**
-  - Command Palette access
-  - Explorer context menu for `.md` files
-  - Editor title buttons when viewing Markdown
-- **Settings**
-  - `mdxExporter.pandocPath` - Custom Pandoc executable path
-  - `mdxExporter.outputDirectory` - Default output directory
-  - `mdxExporter.pdfEngine` - PDF engine selection
-  - `mdxExporter.referenceDocx` - DOCX template support
-  - `mdxExporter.openAfterExport` - Auto-open after export
-- **Features**
-  - Progress notification during export
-  - "Open File" and "Reveal in Explorer" buttons after export
-  - Auto-detection of Pandoc in system PATH
-  - Relative image path support (uses markdown file directory as cwd)
-  - Cross-platform support (Windows, macOS, Linux)
-  - No telemetry collection
+- Initial release
+- Markdown preview functionality
+- Export to PDF using Pandoc
+- Export to DOCX using Pandoc
+- Configurable Pandoc path and PDF engine
+- Context menu integration
+- Editor title bar buttons

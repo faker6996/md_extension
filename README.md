@@ -1,6 +1,6 @@
 # MDX Exporter Lite
 
-A lightweight VS Code extension for previewing and exporting Markdown files to PDF and DOCX using [Pandoc](https://pandoc.org/).
+A lightweight VS Code extension for previewing and exporting Markdown files to PDF and DOCX. **No external dependencies required** - works right out of the box!
 
 ![VS Code Version](https://img.shields.io/badge/VS%20Code-1.85%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -11,67 +11,29 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
 - **📄 Export to PDF**: Convert Markdown files to PDF format
 - **📝 Export to DOCX**: Convert Markdown files to Word documents
 - **🎯 Multiple Access Points**: Use Command Palette, context menu, or editor title buttons
-- **⚙️ Customizable**: Configure Pandoc path, output directory, PDF engine, and DOCX templates
+- **⚙️ Customizable**: Configure output directory, PDF page format, margins, and more
 - **🔒 Privacy First**: No telemetry or data collection
+- **🚀 Zero External Dependencies**: No need to install Pandoc or any other tools
 
 ## Requirements
 
-### Pandoc Installation
+### For PDF Export
 
-This extension requires [Pandoc](https://pandoc.org/) to be installed on your system.
+- **Google Chrome**, **Chromium**, or **Microsoft Edge** (most systems already have one installed)
 
-#### Windows
+### For DOCX Export
 
-```powershell
-# Using Chocolatey
-choco install pandoc
-
-# Using Scoop
-scoop install pandoc
-
-# Or download from https://pandoc.org/installing.html#windows
-```
-
-#### macOS
-
-```bash
-# Using Homebrew
-brew install pandoc
-
-# Or download from https://pandoc.org/installing.html#macos
-```
-
-#### Linux
-
-```bash
-# Debian/Ubuntu
-sudo apt-get install pandoc
-
-# Fedora
-sudo dnf install pandoc
-
-# Arch Linux
-sudo pacman -S pandoc
-
-# Or download from https://pandoc.org/installing.html#linux
-```
-
-### Optional: PDF Engines
-
-For PDF export, Pandoc may require an additional PDF engine:
-
-- **wkhtmltopdf** (recommended for simple documents): [Download](https://wkhtmltopdf.org/downloads.html)
-- **LaTeX** (for complex formatting): Install [TeX Live](https://www.tug.org/texlive/) or [MiKTeX](https://miktex.org/)
+- No additional requirements - works immediately!
 
 ## Usage
 
 ### Commands
 
-| Command | Description | Shortcut |
-|---------|-------------|----------|
-| `MDX: Open Preview to Side` | Open Markdown preview in side panel | - |
-| `MDX: Export to PDF` | Export current Markdown to PDF | - |
-| `MDX: Export to DOCX` | Export current Markdown to DOCX | - |
+| Command                     | Description                         |
+| --------------------------- | ----------------------------------- |
+| `MDX: Open Preview to Side` | Open Markdown preview in side panel |
+| `MDX: Export to PDF`        | Export current Markdown to PDF      |
+| `MDX: Export to DOCX`       | Export current Markdown to DOCX     |
 
 ### Access Methods
 
@@ -89,58 +51,77 @@ For PDF export, Pandoc may require an additional PDF engine:
 
 1. Open a Markdown file
 2. Choose an export command
-3. If the file has unsaved changes, you'll be prompted to save
-4. Select the output location in the save dialog
-5. Wait for export to complete
-6. Click "Open File" or "Reveal in File Explorer" to access the result
+3. Select the output location in the save dialog
+4. Wait for export to complete
+5. Click "Open File" or "Reveal in File Explorer" to access the result
 
 ## Extension Settings
 
 Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `mdxExporter.pandocPath` | string | `pandoc` | Path to Pandoc executable |
-| `mdxExporter.outputDirectory` | string | (empty) | Default output directory |
-| `mdxExporter.pdfEngine` | string | (empty) | PDF engine (e.g., `wkhtmltopdf`, `xelatex`) |
-| `mdxExporter.referenceDocx` | string | (empty) | Path to reference DOCX template |
-| `mdxExporter.openAfterExport` | boolean | `true` | Open file after export |
+| Setting                          | Type    | Default | Description                                 |
+| -------------------------------- | ------- | ------- | ------------------------------------------- |
+| `mdxExporter.outputDirectory`    | string  | (empty) | Default output directory                    |
+| `mdxExporter.openAfterExport`    | boolean | `true`  | Open file after export                      |
+| `mdxExporter.saveBeforeExport`   | boolean | `true`  | Auto-save before export                     |
+| `mdxExporter.formatBeforeExport` | boolean | `true`  | Auto-format before export                   |
+| `mdxExporter.pdfPageFormat`      | string  | `A4`    | PDF page format (A4, Letter, Legal, A3, A5) |
+| `mdxExporter.pdfMargin`          | string  | `20mm`  | PDF page margin                             |
 
 ### Example Configuration
 
 ```json
 {
-  "mdxExporter.pandocPath": "/usr/local/bin/pandoc",
   "mdxExporter.outputDirectory": "~/Documents/exports",
-  "mdxExporter.pdfEngine": "wkhtmltopdf",
-  "mdxExporter.referenceDocx": "~/templates/my-template.docx",
+  "mdxExporter.pdfPageFormat": "Letter",
+  "mdxExporter.pdfMargin": "1in",
   "mdxExporter.openAfterExport": true
 }
 ```
 
+## Supported Markdown Features
+
+### PDF Export
+
+- Headings (h1-h6)
+- Bold, italic, inline code
+- Code blocks with syntax highlighting
+- Tables
+- Blockquotes
+- Lists (ordered and unordered)
+- Links
+- Images (local files)
+- Horizontal rules
+
+### DOCX Export
+
+- Headings with proper Word styles
+- Bold, italic, inline code
+- Code blocks
+- Tables with formatting
+- Blockquotes with indentation
+- Lists
+- Images (local files)
+
 ## Troubleshooting
 
-### "Pandoc is not found"
+### PDF export fails with "Chrome not found"
 
-1. Verify Pandoc is installed: run `pandoc --version` in terminal
-2. If installed in a custom location, set `mdxExporter.pandocPath`
-3. Restart VS Code after installing Pandoc
+The extension uses Chrome/Chromium for PDF generation. Install one of:
 
-### PDF export fails
-
-1. Check if a PDF engine is required for your content
-2. Install `wkhtmltopdf` or a LaTeX distribution
-3. Set `mdxExporter.pdfEngine` to your installed engine
+- [Google Chrome](https://www.google.com/chrome/)
+- [Chromium](https://www.chromium.org/)
+- Microsoft Edge (pre-installed on Windows 10/11)
 
 ### Images not appearing in export
 
 - Use relative paths for images in your Markdown
-- The extension sets the working directory to the Markdown file's location
+- Ensure images exist in the specified location
 
 ### Export takes too long
 
 - Large documents with many images may take time
-- Consider using `wkhtmltopdf` for faster PDF generation compared to LaTeX
+- Complex tables may increase processing time
 
 ## Privacy
 
@@ -154,7 +135,6 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## Changelog
 
-- [Pandoc](https://pandoc.org/) - Universal document converter
-- [VS Code Extension API](https://code.visualstudio.com/api)
+See [CHANGELOG.md](CHANGELOG.md) for version history.
