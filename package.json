@@ -2,12 +2,12 @@
   "name": "mdx-exporter-lite",
   "displayName": "MDX Exporter Lite",
   "description": "Preview and export Markdown files to PDF and DOCX using Pandoc",
-  "version": "0.0.1",
-  "publisher": "your-publisher",
+  "version": "0.0.2",
+  "publisher": "bachtv",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-publisher/mdx-exporter-lite"
+    "url": "https://github.com/bachtv/mdx-exporter-lite"
   },
   "engines": {
     "vscode": "^1.85.0"
