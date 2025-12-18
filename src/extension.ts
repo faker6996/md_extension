@@ -11,6 +11,7 @@ import {
   PdfOptions,
   DocxOptions,
 } from './markdown-converter';
+import { PdfViewerProvider, openPdfInViewer } from './pdf-viewer';
 
 // Configuration interface
 interface MdxExporterConfig {
@@ -384,12 +385,16 @@ export function activate(context: vscode.ExtensionContext): void {
     (resourceUri?: vscode.Uri) => exportDocx(resourceUri)
   );
 
+  // Register PDF Viewer
+  const pdfViewerProvider = PdfViewerProvider.register(context);
+
   // Add to subscriptions
   context.subscriptions.push(
     outputChannel,
     openPreviewCommand,
     exportPdfCommand,
-    exportDocxCommand
+    exportDocxCommand,
+    pdfViewerProvider
   );
 
   // Log activation

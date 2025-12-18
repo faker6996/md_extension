@@ -1,8 +1,8 @@
 {
   "name": "mdx-exporter-lite",
-  "displayName": "MDX Exporter Lite",
-  "description": "Preview and export Markdown files to PDF and DOCX - No external dependencies required",
-  "version": "0.1.2",
+  "displayName": "MD & PDF Toolkit",
+  "description": "Preview Markdown, export to PDF/DOCX, and view PDF files - all in one toolkit",
+  "version": "0.2.3",
   "publisher": "bachtv",
   "license": "MIT",
   "repository": {
@@ -22,12 +22,14 @@
     "docx",
     "export",
     "preview",
-    "converter"
+    "converter",
+    "pdf-viewer"
   ],
   "icon": "resources/icon.png",
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:markdown"
+    "onLanguage:markdown",
+    "onCustomEditor:mdxExporter.pdfViewer"
   ],
   "contributes": {
     "commands": [
@@ -90,8 +92,37 @@
           "when": "editorLangId == markdown",
           "group": "navigation@3"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "mdxExporter.openPreviewToSide",
+          "when": "editorLangId == markdown",
+          "group": "mdpdf@1"
+        },
+        {
+          "command": "mdxExporter.exportPdf",
+          "when": "editorLangId == markdown",
+          "group": "mdpdf@2"
+        },
+        {
+          "command": "mdxExporter.exportDocx",
+          "when": "editorLangId == markdown",
+          "group": "mdpdf@3"
+        }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "mdxExporter.pdfViewer",
+        "displayName": "MDX PDF Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.pdf"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
     "configuration": {
       "title": "MDX Exporter Lite",
       "properties": {
@@ -147,8 +178,9 @@
     "publish": "vsce publish"
   },
   "dependencies": {
-    "markdown-it": "^14.0.0",
     "docx": "^8.5.0",
+    "markdown-it": "^14.0.0",
+    "pdfjs-dist": "^5.4.449",
     "puppeteer-core": "^22.0.0"
   },
   "devDependencies": {
