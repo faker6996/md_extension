@@ -121,6 +121,34 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
       margin-left: auto;
     }
     
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 12px;
+    }
+    
+    .search-box input {
+      padding: 4px 8px;
+      border: 1px solid #3c3c3c;
+      border-radius: 4px;
+      background-color: #3c3c3c;
+      color: #d4d4d4;
+      font-size: 13px;
+      width: 150px;
+    }
+    
+    .search-box input:focus {
+      outline: none;
+      border-color: #0e639c;
+    }
+    
+    .search-info {
+      color: #cccccc;
+      font-size: 12px;
+      min-width: 60px;
+    }
+    
     .container {
       position: fixed;
       top: 40px;
@@ -159,6 +187,54 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
       text-align: center;
       padding: 20px;
     }
+    
+    .page-container {
+      position: relative;
+    }
+    
+    .textLayer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      opacity: 0.25;
+      line-height: 1.0;
+      -webkit-text-size-adjust: none;
+      -moz-text-size-adjust: none;
+      text-size-adjust: none;
+      forced-color-adjust: none;
+    }
+    
+    .textLayer span,
+    .textLayer br {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%;
+    }
+    
+    .textLayer ::selection {
+      background: rgba(0, 0, 255, 0.3);
+    }
+    
+    .textLayer .highlight {
+      margin: -1px;
+      padding: 1px;
+      background-color: rgba(180, 0, 170, 0.25);
+      border-radius: 4px;
+    }
+    
+    .textLayer .search-highlight {
+      background-color: rgba(255, 255, 0, 0.4);
+      border-radius: 2px;
+    }
+    
+    .textLayer .search-highlight.current {
+      background-color: rgba(255, 165, 0, 0.6);
+    }
   </style>
 </head>
 <body>
@@ -172,6 +248,12 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     <button id="zoomIn">+</button>
     <span class="zoom-info"><span id="zoomLevel">100</span>%</span>
     <button id="fitWidth">Fit Width</button>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Search..." />
+      <button id="searchPrev" disabled>▲</button>
+      <button id="searchNext" disabled>▼</button>
+      <span class="search-info" id="searchInfo"></span>
+    </div>
   </div>
   
   <div class="container" id="container">
@@ -243,6 +325,49 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
 
         if (pageToken !== renderToken) {
           return;
+        }
+
+        // Remove existing text layer if any
+        const existingTextLayer = pageEl.querySelector('.textLayer');
+        if (existingTextLayer) {
+          existingTextLayer.remove();
+        }
+
+        // Create text layer for text selection
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.className = 'textLayer';
+        textLayerDiv.style.width = viewport.width + 'px';
+        textLayerDiv.style.height = viewport.height + 'px';
+        pageEl.appendChild(textLayerDiv);
+
+        // Get text content and render text layer
+        const textContent = await page.getTextContent();
+        
+        if (pageToken !== renderToken) {
+          return;
+        }
+
+        // Render text items
+        for (const item of textContent.items) {
+          if (!item.str) continue;
+          
+          const tx = pdfjsLib.Util.transform(
+            pdfjsLib.Util.transform(viewport.transform, item.transform),
+            [1, 0, 0, -1, 0, 0]
+          );
+          
+          const span = document.createElement('span');
+          span.textContent = item.str;
+          span.style.left = tx[4] + 'px';
+          span.style.top = (viewport.height - tx[5]) + 'px';
+          span.style.fontSize = Math.abs(tx[0]) + 'px';
+          span.style.fontFamily = item.fontName || 'sans-serif';
+          
+          if (tx[0] < 0) {
+            span.style.transform = 'scaleX(-1)';
+          }
+          
+          textLayerDiv.appendChild(span);
         }
 
         canvas.dataset.renderedScale = String(scale);
@@ -452,6 +577,142 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     }).catch(err => {
       loading.innerHTML = '<div class="error">Error loading PDF: ' + err.message + '</div>';
     });
+
+    // Search functionality
+    const searchInput = document.getElementById('searchInput');
+    const searchPrevBtn = document.getElementById('searchPrev');
+    const searchNextBtn = document.getElementById('searchNext');
+    const searchInfo = document.getElementById('searchInfo');
+    
+    let searchResults = [];
+    let currentSearchIndex = -1;
+    let searchTimeout = null;
+
+    function clearSearchHighlights() {
+      document.querySelectorAll('.search-highlight').forEach(el => {
+        const parent = el.parentNode;
+        parent.replaceChild(document.createTextNode(el.textContent), el);
+        parent.normalize();
+      });
+    }
+
+    function highlightSearchResults(query) {
+      clearSearchHighlights();
+      searchResults = [];
+      currentSearchIndex = -1;
+
+      if (!query || query.length < 2) {
+        updateSearchInfo();
+        return;
+      }
+
+      const lowerQuery = query.toLowerCase();
+      const textLayers = document.querySelectorAll('.textLayer');
+
+      textLayers.forEach((textLayer, pageIndex) => {
+        const spans = textLayer.querySelectorAll('span');
+        spans.forEach(span => {
+          const text = span.textContent;
+          const lowerText = text.toLowerCase();
+          let index = lowerText.indexOf(lowerQuery);
+
+          if (index !== -1) {
+            // Create highlighted version
+            const parts = [];
+            let lastIndex = 0;
+
+            while (index !== -1) {
+              if (index > lastIndex) {
+                parts.push(document.createTextNode(text.substring(lastIndex, index)));
+              }
+              
+              const highlight = document.createElement('mark');
+              highlight.className = 'search-highlight';
+              highlight.textContent = text.substring(index, index + query.length);
+              parts.push(highlight);
+              searchResults.push({ element: highlight, pageNum: pageIndex + 1 });
+              
+              lastIndex = index + query.length;
+              index = lowerText.indexOf(lowerQuery, lastIndex);
+            }
+
+            if (lastIndex < text.length) {
+              parts.push(document.createTextNode(text.substring(lastIndex)));
+            }
+
+            span.textContent = '';
+            parts.forEach(part => span.appendChild(part));
+          }
+        });
+      });
+
+      if (searchResults.length > 0) {
+        currentSearchIndex = 0;
+        highlightCurrentResult();
+      }
+      
+      updateSearchInfo();
+      updateSearchButtons();
+    }
+
+    function highlightCurrentResult() {
+      document.querySelectorAll('.search-highlight.current').forEach(el => {
+        el.classList.remove('current');
+      });
+
+      if (currentSearchIndex >= 0 && currentSearchIndex < searchResults.length) {
+        const result = searchResults[currentSearchIndex];
+        result.element.classList.add('current');
+        result.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchResults.length === 0) {
+        searchInfo.textContent = searchInput.value.length >= 2 ? 'No results' : '';
+      } else {
+        searchInfo.textContent = (currentSearchIndex + 1) + ' / ' + searchResults.length;
+      }
+    }
+
+    function updateSearchButtons() {
+      searchPrevBtn.disabled = searchResults.length === 0;
+      searchNextBtn.disabled = searchResults.length === 0;
+    }
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        highlightSearchResults(searchInput.value);
+      }, 300);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (e.shiftKey) {
+          goToPrevResult();
+        } else {
+          goToNextResult();
+        }
+      }
+    });
+
+    function goToNextResult() {
+      if (searchResults.length === 0) return;
+      currentSearchIndex = (currentSearchIndex + 1) % searchResults.length;
+      highlightCurrentResult();
+      updateSearchInfo();
+    }
+
+    function goToPrevResult() {
+      if (searchResults.length === 0) return;
+      currentSearchIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+      highlightCurrentResult();
+      updateSearchInfo();
+    }
+
+    searchNextBtn.addEventListener('click', goToNextResult);
+    searchPrevBtn.addEventListener('click', goToPrevResult);
   </script>
 </body>
 </html>`;
