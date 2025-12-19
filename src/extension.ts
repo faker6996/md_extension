@@ -11,7 +11,8 @@ import {
   PdfOptions,
   DocxOptions,
 } from './markdown-converter';
-import { PdfViewerProvider, openPdfInViewer } from './pdf-viewer';
+import { PdfViewerProvider } from './pdf-viewer';
+import { docxToHtml, docxToMarkdown } from './docx-converter';
 
 // Configuration interface
 interface MdxExporterConfig {
@@ -19,6 +20,7 @@ interface MdxExporterConfig {
   openAfterExport: boolean;
   saveBeforeExport: boolean;
   formatBeforeExport: boolean;
+  quickExportOverwrite: boolean;
   pdfPageFormat: PaperFormat;
   pdfMargin: string;
 }
@@ -62,6 +64,7 @@ function getConfig(): MdxExporterConfig {
     openAfterExport: config.get<boolean>('openAfterExport', true),
     saveBeforeExport: config.get<boolean>('saveBeforeExport', true),
     formatBeforeExport: config.get<boolean>('formatBeforeExport', true),
+    quickExportOverwrite: config.get<boolean>('quickExportOverwrite', false),
     pdfPageFormat: config.get<PaperFormat>('pdfPageFormat', 'A4'),
     pdfMargin: config.get<string>('pdfMargin', '20mm'),
   };
@@ -74,6 +77,15 @@ function isMarkdownFile(uri: vscode.Uri | undefined): boolean {
   }
   const ext = path.extname(uri.fsPath).toLowerCase();
   return ext === '.md' || ext === '.markdown' || ext === '.mdown';
+}
+
+// Check if file is a DOCX file
+function isDocxFile(uri: vscode.Uri | undefined): boolean {
+  if (!uri) {
+    return false;
+  }
+  const ext = path.extname(uri.fsPath).toLowerCase();
+  return ext === '.docx';
 }
 
 // Get the active Markdown file URI
@@ -176,9 +188,9 @@ async function prepareDocumentForExport(
 }
 
 // Get default output path
-function getDefaultOutputPath(
+function getDefaultOutputPathForExtension(
   inputPath: string,
-  format: ExportFormat,
+  outputExtension: string,
   config: MdxExporterConfig
 ): string {
   const inputDir = path.dirname(inputPath);
@@ -195,8 +207,16 @@ function getDefaultOutputPath(
       outputDir = path.resolve(baseDir, configuredOutputDir);
     }
   }
-  const extension = format === 'pdf' ? '.pdf' : '.docx';
-  return path.join(outputDir, baseName + extension);
+  return path.join(outputDir, baseName + outputExtension);
+}
+
+function getDefaultOutputPath(
+  inputPath: string,
+  format: ExportFormat,
+  config: MdxExporterConfig
+): string {
+  const outputExtension = format === 'pdf' ? '.pdf' : '.docx';
+  return getDefaultOutputPathForExtension(inputPath, outputExtension, config);
 }
 
 // Show save dialog for output file
@@ -231,7 +251,12 @@ async function showSuccessMessage(outputPath: string, config: MdxExporterConfig)
   );
 
   if (choice === 'Open File') {
-    await vscode.env.openExternal(vscode.Uri.file(outputPath));
+    const outputUri = vscode.Uri.file(outputPath);
+    if (path.extname(outputPath).toLowerCase() === '.pdf') {
+      await vscode.commands.executeCommand('vscode.openWith', outputUri, PdfViewerProvider.viewType);
+    } else {
+      await vscode.env.openExternal(outputUri);
+    }
   } else if (choice === 'Reveal in File Explorer') {
     await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
   }
@@ -264,7 +289,11 @@ async function runExport(
 }
 
 // Main export function
-async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): Promise<void> {
+async function exportMarkdown(
+  format: ExportFormat,
+  resourceUri?: vscode.Uri,
+  options?: { skipSaveDialog?: boolean }
+): Promise<void> {
   const config = getConfig();
   logLine(`--- Export ${format.toUpperCase()} @ ${new Date().toISOString()} ---`);
 
@@ -301,13 +330,27 @@ async function exportMarkdown(format: ExportFormat, resourceUri?: vscode.Uri): P
   const inputPath = inputUri.fsPath;
   const defaultOutputPath = getDefaultOutputPath(inputPath, format, config);
 
-  // Show save dialog
-  const outputUri = await showSaveDialog(defaultOutputPath, format);
-  if (!outputUri) {
-    return; // User cancelled
+  const skipSaveDialog = options?.skipSaveDialog ?? false;
+  let outputPath = defaultOutputPath;
+
+  if (!skipSaveDialog) {
+    const outputUri = await showSaveDialog(defaultOutputPath, format);
+    if (!outputUri) {
+      return; // User cancelled
+    }
+    outputPath = outputUri.fsPath;
   }
 
-  const outputPath = outputUri.fsPath;
+  if (skipSaveDialog && fs.existsSync(outputPath) && !config.quickExportOverwrite) {
+    const choice = await vscode.window.showWarningMessage(
+      `File already exists: ${outputPath}. Overwrite?`,
+      'Overwrite',
+      'Cancel'
+    );
+    if (choice !== 'Overwrite') {
+      return;
+    }
+  }
 
   try {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -360,9 +403,162 @@ async function exportPdf(resourceUri?: vscode.Uri): Promise<void> {
   await exportMarkdown('pdf', resourceUri);
 }
 
+// Command: Quick Export to PDF (no save dialog)
+async function quickExportPdf(resourceUri?: vscode.Uri): Promise<void> {
+  await exportMarkdown('pdf', resourceUri, { skipSaveDialog: true });
+}
+
 // Command: Export to DOCX
 async function exportDocx(resourceUri?: vscode.Uri): Promise<void> {
   await exportMarkdown('docx', resourceUri);
+}
+
+// Command: Quick Export to DOCX (no save dialog)
+async function quickExportDocx(resourceUri?: vscode.Uri): Promise<void> {
+  await exportMarkdown('docx', resourceUri, { skipSaveDialog: true });
+}
+
+// Command: Convert DOCX to PDF
+async function exportDocxToPdf(resourceUri?: vscode.Uri): Promise<void> {
+  const config = getConfig();
+  logLine(`--- DOCX to PDF @ ${new Date().toISOString()} ---`);
+
+  // Check Chrome availability
+  if (!checkChromeAvailable()) {
+    logLine('[chrome] not found');
+    await showChromeInstallInstructions();
+    return;
+  }
+
+  // Get input file
+  const inputUri: vscode.Uri | undefined = resourceUri;
+  if (!inputUri || !isDocxFile(inputUri)) {
+    void vscode.window.showErrorMessage('Please select a DOCX file to convert.');
+    return;
+  }
+
+  const inputPath = inputUri.fsPath;
+  const defaultOutputPath = getDefaultOutputPath(inputPath, 'pdf', config);
+
+  // Show save dialog
+  const outputUri = await showSaveDialog(defaultOutputPath, 'pdf');
+  if (!outputUri) {
+    return;
+  }
+
+  const outputPath = outputUri.fsPath;
+
+  try {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logLine(`[mkdir] failed: ${errorMessage}`);
+    void vscode.window.showErrorMessage(`Failed to create output directory: ${errorMessage}`);
+    return;
+  }
+
+  // Run export with progress
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Converting DOCX to PDF...',
+      cancellable: false,
+    },
+    async () => {
+      try {
+        const html = await docxToHtml(inputPath);
+        const pdfOptions: PdfOptions = {
+          format: config.pdfPageFormat,
+          margin: config.pdfMargin,
+          baseDir: path.dirname(inputPath),
+        };
+        await htmlToPdf(html, outputPath, pdfOptions);
+        await showSuccessMessage(outputPath, config);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logLine(`[docx-to-pdf] failed: ${errorMessage}`);
+        const choice = await vscode.window.showErrorMessage(
+          `Conversion failed: ${errorMessage}`,
+          'Open Logs'
+        );
+        if (choice === 'Open Logs') {
+          outputChannel?.show(true);
+        }
+      }
+    }
+  );
+}
+
+// Command: Convert DOCX to Markdown
+async function convertDocxToMd(resourceUri?: vscode.Uri): Promise<void> {
+  logLine(`--- DOCX to Markdown @ ${new Date().toISOString()} ---`);
+
+  const config = getConfig();
+
+  // Get input file
+  const inputUri: vscode.Uri | undefined = resourceUri;
+  if (!inputUri || !isDocxFile(inputUri)) {
+    void vscode.window.showErrorMessage('Please select a DOCX file to convert.');
+    return;
+  }
+
+  const inputPath = inputUri.fsPath;
+  const defaultOutputPath = getDefaultOutputPathForExtension(inputPath, '.md', config);
+
+  // Show save dialog
+  const outputUri = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(defaultOutputPath),
+    filters: {
+      Markdown: ['md'],
+    },
+    title: 'Save as Markdown',
+  });
+
+  if (!outputUri) {
+    return;
+  }
+
+  const outputPath = outputUri.fsPath;
+
+  try {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logLine(`[mkdir] failed: ${errorMessage}`);
+    void vscode.window.showErrorMessage(`Failed to create output directory: ${errorMessage}`);
+    return;
+  }
+
+  // Run conversion with progress
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Converting DOCX to Markdown...',
+      cancellable: false,
+    },
+    async () => {
+      try {
+        const markdown = await docxToMarkdown(inputPath);
+        fs.writeFileSync(outputPath, markdown, 'utf-8');
+
+        // Open the created markdown file
+        const document = await vscode.workspace.openTextDocument(outputPath);
+        await vscode.window.showTextDocument(document);
+
+        void vscode.window.showInformationMessage(`Successfully converted to: ${outputPath}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logLine(`[docx-to-md] failed: ${errorMessage}`);
+        const choice = await vscode.window.showErrorMessage(
+          `Conversion failed: ${errorMessage}`,
+          'Open Logs'
+        );
+        if (choice === 'Open Logs') {
+          outputChannel?.show(true);
+        }
+      }
+    }
+  );
 }
 
 // Extension activation
@@ -380,9 +576,29 @@ export function activate(context: vscode.ExtensionContext): void {
     (resourceUri?: vscode.Uri) => exportPdf(resourceUri)
   );
 
+  const quickExportPdfCommand = vscode.commands.registerCommand(
+    'mdxExporter.quickExportPdf',
+    (resourceUri?: vscode.Uri) => quickExportPdf(resourceUri)
+  );
+
   const exportDocxCommand = vscode.commands.registerCommand(
     'mdxExporter.exportDocx',
     (resourceUri?: vscode.Uri) => exportDocx(resourceUri)
+  );
+
+  const quickExportDocxCommand = vscode.commands.registerCommand(
+    'mdxExporter.quickExportDocx',
+    (resourceUri?: vscode.Uri) => quickExportDocx(resourceUri)
+  );
+
+  const docxToPdfCommand = vscode.commands.registerCommand(
+    'mdxExporter.docxToPdf',
+    (resourceUri?: vscode.Uri) => exportDocxToPdf(resourceUri)
+  );
+
+  const docxToMarkdownCommand = vscode.commands.registerCommand(
+    'mdxExporter.docxToMarkdown',
+    (resourceUri?: vscode.Uri) => convertDocxToMd(resourceUri)
   );
 
   // Register PDF Viewer
@@ -393,7 +609,11 @@ export function activate(context: vscode.ExtensionContext): void {
     outputChannel,
     openPreviewCommand,
     exportPdfCommand,
+    quickExportPdfCommand,
     exportDocxCommand,
+    quickExportDocxCommand,
+    docxToPdfCommand,
+    docxToMarkdownCommand,
     pdfViewerProvider
   );
 

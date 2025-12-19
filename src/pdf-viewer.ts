@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 
 export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
@@ -17,29 +16,43 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     });
   }
 
-  public async openCustomDocument(uri: vscode.Uri): Promise<vscode.CustomDocument> {
+  public openCustomDocument(uri: vscode.Uri): vscode.CustomDocument {
     return { uri, dispose: () => {} };
   }
 
-  public async resolveCustomEditor(
+  public resolveCustomEditor(
     document: vscode.CustomDocument,
     webviewPanel: vscode.WebviewPanel
-  ): Promise<void> {
+  ): void {
     webviewPanel.webview.options = {
       enableScripts: true,
+      localResourceRoots: [this.extensionUri, vscode.Uri.file(path.dirname(document.uri.fsPath))],
     };
 
-    const pdfData = fs.readFileSync(document.uri.fsPath);
-    const base64Pdf = pdfData.toString('base64');
+    const pdfUri = webviewPanel.webview.asWebviewUri(document.uri);
+    const pdfJsUri = webviewPanel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'pdfjs', 'pdf.min.js')
+    );
+    const pdfWorkerUri = webviewPanel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'pdfjs', 'pdf.worker.min.js')
+    );
 
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
-      base64Pdf,
+      pdfUri.toString(),
+      pdfJsUri.toString(),
+      pdfWorkerUri.toString(),
       document.uri.fsPath
     );
   }
 
-  private getHtmlForWebview(webview: vscode.Webview, base64Pdf: string, filePath: string): string {
+  private getHtmlForWebview(
+    webview: vscode.Webview,
+    pdfUri: string,
+    pdfJsUri: string,
+    pdfWorkerUri: string,
+    filePath: string
+  ): string {
     const fileName = path.basename(filePath);
 
     return `<!DOCTYPE html>
@@ -48,7 +61,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${fileName}</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="${pdfJsUri}"></script>
   <style>
     * {
       margin: 0;
@@ -166,18 +179,20 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
   </div>
   
   <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    
-    const pdfData = atob('${base64Pdf}');
-    const pdfArray = new Uint8Array(pdfData.length);
-    for (let i = 0; i < pdfData.length; i++) {
-      pdfArray[i] = pdfData.charCodeAt(i);
-    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '${pdfWorkerUri}';
+    const pdfUri = '${pdfUri}';
     
     let pdfDoc = null;
     let currentPage = 1;
     let scale = 1.0;
-    let rendering = false;
+    let renderToken = 0;
+    const renderingPages = new Set();
+    const pendingPages = new Set();
+    const visiblePages = new Set();
+    const maxConcurrentRenders = 2;
+    let intersectionObserver = null;
+    let estimatedPageWidth = 0;
+    let estimatedPageHeight = 0;
     
     const container = document.getElementById('container');
     const loading = document.getElementById('loading');
@@ -187,49 +202,180 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
     
-    async function renderPage(pageNum, canvas) {
-      const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale });
+    function updatePageInfo() {
+      currentPageSpan.textContent = currentPage;
+      totalPagesSpan.textContent = pdfDoc ? pdfDoc.numPages : '-';
+      zoomLevelSpan.textContent = Math.round(scale * 100);
       
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      
-      const context = canvas.getContext('2d');
-      await page.render({
-        canvasContext: context,
-        viewport: viewport
-      }).promise;
+      prevBtn.disabled = !pdfDoc || currentPage <= 1;
+      nextBtn.disabled = !pdfDoc || currentPage >= pdfDoc.numPages;
     }
-    
-    async function renderAllPages() {
-      if (rendering) return;
-      rendering = true;
-      
+
+    async function renderPage(pageNum) {
+      if (!pdfDoc) return;
+
+      const pageEl = document.getElementById('page-' + pageNum);
+      if (!pageEl) return;
+      const canvas = pageEl.querySelector('canvas');
+      if (!canvas) return;
+
+      const pageToken = renderToken;
+      if (canvas.dataset.renderedScale === String(scale)) {
+        return;
+      }
+
+      renderingPages.add(pageNum);
+      try {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale });
+
+        if (pageToken !== renderToken) {
+          return;
+        }
+
+        pageEl.style.width = viewport.width + 'px';
+        pageEl.style.height = viewport.height + 'px';
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+
+        const context = canvas.getContext('2d');
+        await page.render({ canvasContext: context, viewport }).promise;
+
+        if (pageToken !== renderToken) {
+          return;
+        }
+
+        canvas.dataset.renderedScale = String(scale);
+      } catch (err) {
+        // Keep the placeholder; error shows at top-level load errors already
+      } finally {
+        renderingPages.delete(pageNum);
+      }
+    }
+
+    function drainRenderQueue() {
+      while (pendingPages.size && renderingPages.size < maxConcurrentRenders) {
+        const nextPage = pendingPages.values().next().value;
+        pendingPages.delete(nextPage);
+
+        void renderPage(nextPage).finally(() => {
+          drainRenderQueue();
+        });
+      }
+    }
+
+    function queueRender(pageNum) {
+      if (!pdfDoc) return;
+      if (pageNum < 1 || pageNum > pdfDoc.numPages) return;
+      if (renderingPages.has(pageNum)) return;
+
+      const pageEl = document.getElementById('page-' + pageNum);
+      const canvas = pageEl ? pageEl.querySelector('canvas') : null;
+      if (canvas && canvas.dataset.renderedScale === String(scale)) {
+        return;
+      }
+
+      pendingPages.add(pageNum);
+      drainRenderQueue();
+    }
+
+    function setupPagePlaceholders() {
       container.innerHTML = '';
-      
+
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const pageContainer = document.createElement('div');
         pageContainer.className = 'page-container';
         pageContainer.id = 'page-' + i;
-        
+        pageContainer.dataset.pageNum = String(i);
+        if (estimatedPageWidth && estimatedPageHeight) {
+          pageContainer.style.width = estimatedPageWidth + 'px';
+          pageContainer.style.height = estimatedPageHeight + 'px';
+        }
+
         const canvas = document.createElement('canvas');
+        if (estimatedPageWidth && estimatedPageHeight) {
+          canvas.width = Math.floor(estimatedPageWidth);
+          canvas.height = Math.floor(estimatedPageHeight);
+        }
         pageContainer.appendChild(canvas);
         container.appendChild(pageContainer);
-        
-        await renderPage(i, canvas);
       }
-      
-      rendering = false;
+    }
+
+    async function resetForScale() {
+      if (!pdfDoc) return;
+
+      renderToken++;
+      pendingPages.clear();
+      renderingPages.clear();
+
+      try {
+        const firstPage = await pdfDoc.getPage(1);
+        const viewport = firstPage.getViewport({ scale });
+        estimatedPageWidth = viewport.width;
+        estimatedPageHeight = viewport.height;
+      } catch {
+        // Keep previous estimates
+      }
+
+      const pages = container.querySelectorAll('.page-container');
+      pages.forEach(pageEl => {
+        const canvas = pageEl.querySelector('canvas');
+        if (!canvas) return;
+        delete canvas.dataset.renderedScale;
+
+        if (estimatedPageWidth && estimatedPageHeight) {
+          pageEl.style.width = estimatedPageWidth + 'px';
+          pageEl.style.height = estimatedPageHeight + 'px';
+          canvas.width = Math.floor(estimatedPageWidth);
+          canvas.height = Math.floor(estimatedPageHeight);
+        }
+      });
+
+      const pagesToRender = new Set(visiblePages);
+      pagesToRender.add(currentPage);
+      pagesToRender.add(currentPage - 1);
+      pagesToRender.add(currentPage + 1);
+      pagesToRender.forEach(n => queueRender(Number(n)));
+
       updatePageInfo();
     }
-    
-    function updatePageInfo() {
-      currentPageSpan.textContent = currentPage;
-      totalPagesSpan.textContent = pdfDoc.numPages;
-      zoomLevelSpan.textContent = Math.round(scale * 100);
-      
-      prevBtn.disabled = currentPage <= 1;
-      nextBtn.disabled = currentPage >= pdfDoc.numPages;
+
+    function initIntersectionObserver() {
+      if (intersectionObserver) {
+        intersectionObserver.disconnect();
+      }
+
+      visiblePages.clear();
+
+      intersectionObserver = new IntersectionObserver(
+        entries => {
+          for (const entry of entries) {
+            const pageNum = Number(entry.target.dataset.pageNum);
+            if (!Number.isFinite(pageNum)) continue;
+
+            if (entry.isIntersecting) {
+              visiblePages.add(pageNum);
+              queueRender(pageNum);
+            } else {
+              visiblePages.delete(pageNum);
+            }
+          }
+
+          // Update current page to the top-most visible page
+          if (visiblePages.size) {
+            currentPage = Math.min(...Array.from(visiblePages));
+            updatePageInfo();
+          }
+        },
+        {
+          root: container,
+          rootMargin: '300px 0px',
+          threshold: 0.01,
+        }
+      );
+
+      container.querySelectorAll('.page-container').forEach(el => intersectionObserver.observe(el));
     }
     
     function scrollToPage(pageNum) {
@@ -258,12 +404,12 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     
     document.getElementById('zoomIn').addEventListener('click', () => {
       scale = Math.min(scale + 0.25, 3.0);
-      renderAllPages();
+      void resetForScale();
     });
     
     document.getElementById('zoomOut').addEventListener('click', () => {
       scale = Math.max(scale - 0.25, 0.5);
-      renderAllPages();
+      void resetForScale();
     });
     
     document.getElementById('fitWidth').addEventListener('click', () => {
@@ -272,39 +418,36 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
         pdfDoc.getPage(1).then(page => {
           const viewport = page.getViewport({ scale: 1.0 });
           scale = containerWidth / viewport.width;
-          renderAllPages();
+          void resetForScale();
         });
       }
     });
     
-    // Track current page on scroll
-    container.addEventListener('scroll', () => {
-      const pages = container.querySelectorAll('.page-container');
-      const containerRect = container.getBoundingClientRect();
-      
-      for (let i = 0; i < pages.length; i++) {
-        const pageRect = pages[i].getBoundingClientRect();
-        if (pageRect.top <= containerRect.top + 100 && pageRect.bottom > containerRect.top + 100) {
-          currentPage = i + 1;
-          updatePageInfo();
-          break;
-        }
-      }
-    });
-    
     // Load PDF
-    pdfjsLib.getDocument({ data: pdfArray }).promise.then(pdf => {
+    pdfjsLib.getDocument(pdfUri).promise.then(pdf => {
       pdfDoc = pdf;
       loading.style.display = 'none';
       prevBtn.disabled = false;
       nextBtn.disabled = pdfDoc.numPages <= 1;
+      totalPagesSpan.textContent = pdfDoc.numPages;
       
       // Auto fit width
       pdf.getPage(1).then(page => {
         const containerWidth = container.clientWidth - 60;
         const viewport = page.getViewport({ scale: 1.0 });
         scale = Math.min(containerWidth / viewport.width, 1.5);
-        renderAllPages();
+
+        const scaledViewport = page.getViewport({ scale });
+        estimatedPageWidth = scaledViewport.width;
+        estimatedPageHeight = scaledViewport.height;
+
+        setupPagePlaceholders();
+        initIntersectionObserver();
+        updatePageInfo();
+
+        // Render the first pages quickly
+        queueRender(1);
+        queueRender(2);
       });
     }).catch(err => {
       loading.innerHTML = '<div class="error">Error loading PDF: ' + err.message + '</div>';

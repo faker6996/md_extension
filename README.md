@@ -33,7 +33,9 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
 | --------------------------- | ----------------------------------- |
 | `MDX: Open Preview to Side` | Open Markdown preview in side panel |
 | `MDX: Export to PDF`        | Export current Markdown to PDF      |
+| `MDX: Quick Export to PDF`  | Export to default PDF path (no dialog) |
 | `MDX: Export to DOCX`       | Export current Markdown to DOCX     |
+| `MDX: Quick Export to DOCX` | Export to default DOCX path (no dialog) |
 
 ### Access Methods
 
@@ -55,6 +57,8 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
 4. Wait for export to complete
 5. Click "Open File" or "Reveal in File Explorer" to access the result
 
+> Note: PDF files opened via "Open File" will use the built-in **MDX PDF Viewer** inside VS Code.
+
 ## Extension Settings
 
 Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
@@ -65,6 +69,7 @@ Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
 | `mdxExporter.openAfterExport`    | boolean | `true`  | Open file after export                      |
 | `mdxExporter.saveBeforeExport`   | boolean | `true`  | Auto-save before export                     |
 | `mdxExporter.formatBeforeExport` | boolean | `true`  | Auto-format before export                   |
+| `mdxExporter.quickExportOverwrite` | boolean | `false` | Quick export overwrites without prompting   |
 | `mdxExporter.pdfPageFormat`      | string  | `A4`    | PDF page format (A4, Letter, Legal, A3, A5) |
 | `mdxExporter.pdfMargin`          | string  | `20mm`  | PDF page margin                             |
 

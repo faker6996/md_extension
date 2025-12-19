@@ -33,6 +33,7 @@
 
 - Chọn (A): format + auto-save trước khi export (mặc định bật).
 - Output: vẫn dùng Save dialog, nhưng đường dẫn gợi ý lấy từ `mdxExporter.outputDirectory` (nếu có) hoặc cùng thư mục `.md`.
+- Thêm tuỳ chọn (B) dạng command: “Quick Export” (không hiện Save dialog) để xuất nhanh ra đường dẫn mặc định.
 - Không làm “export on save”.
 
 ## Tiêu chí hoàn thành (gợi ý)

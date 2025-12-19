@@ -2,7 +2,7 @@
   "name": "mdx-exporter-lite",
   "displayName": "MD & PDF Toolkit",
   "description": "Preview Markdown, export to PDF/DOCX, and view PDF files - all in one toolkit",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "bachtv",
   "license": "MIT",
   "repository": {
@@ -44,9 +44,29 @@
         "icon": "$(file-pdf)"
       },
       {
+        "command": "mdxExporter.quickExportPdf",
+        "title": "MDX: Quick Export to PDF",
+        "icon": "$(zap)"
+      },
+      {
         "command": "mdxExporter.exportDocx",
         "title": "MDX: Export to DOCX",
         "icon": "$(file-text)"
+      },
+      {
+        "command": "mdxExporter.quickExportDocx",
+        "title": "MDX: Quick Export to DOCX",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "mdxExporter.docxToPdf",
+        "title": "MDX: Convert DOCX to PDF",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "mdxExporter.docxToMarkdown",
+        "title": "MDX: Convert DOCX to Markdown",
+        "icon": "$(markdown)"
       }
     ],
     "menus": {
@@ -60,8 +80,24 @@
           "when": "editorLangId == markdown"
         },
         {
+          "command": "mdxExporter.quickExportPdf",
+          "when": "editorLangId == markdown"
+        },
+        {
           "command": "mdxExporter.exportDocx",
           "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdxExporter.quickExportDocx",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdxExporter.docxToPdf",
+          "when": "resourceExtname == .docx"
+        },
+        {
+          "command": "mdxExporter.docxToMarkdown",
+          "when": "resourceExtname == .docx"
         }
       ],
       "explorer/context": [
@@ -74,6 +110,16 @@
           "command": "mdxExporter.exportDocx",
           "when": "resourceLangId == markdown",
           "group": "mdxExporter@2"
+        },
+        {
+          "command": "mdxExporter.docxToPdf",
+          "when": "resourceExtname == .docx",
+          "group": "mdxExporter@3"
+        },
+        {
+          "command": "mdxExporter.docxToMarkdown",
+          "when": "resourceExtname == .docx",
+          "group": "mdxExporter@4"
         }
       ],
       "editor/title": [
@@ -146,6 +192,11 @@
           "default": true,
           "description": "Automatically format the Markdown file (via the configured formatter) before exporting."
         },
+        "mdxExporter.quickExportOverwrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "When using Quick Export, overwrite existing files without prompting."
+        },
         "mdxExporter.pdfPageFormat": {
           "type": "string",
           "default": "A4",
@@ -167,10 +218,11 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "vscode:prepublish": "npm run copy:pdfjs && npm run esbuild-base -- --minify",
+    "copy:pdfjs": "node ./scripts/copy-pdfjs.mjs",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
-    "compile": "npm run esbuild-base -- --sourcemap",
-    "watch": "npm run esbuild-base -- --sourcemap --watch",
+    "compile": "npm run copy:pdfjs && npm run esbuild-base -- --sourcemap",
+    "watch": "npm run copy:pdfjs && npm run esbuild-base -- --sourcemap --watch",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -179,6 +231,7 @@
   },
   "dependencies": {
     "docx": "^8.5.0",
+    "mammoth": "^1.11.0",
     "markdown-it": "^14.0.0",
     "pdfjs-dist": "^5.4.449",
     "puppeteer-core": "^22.0.0"
