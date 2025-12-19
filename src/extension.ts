@@ -6,9 +6,11 @@ import { PaperFormat } from 'puppeteer-core';
 import {
   markdownToHtml,
   htmlToPdf,
+  htmlToImage,
   markdownToDocx,
   findChromePath,
   PdfOptions,
+  ImageOptions,
   DocxOptions,
 } from './markdown-converter';
 import { PdfViewerProvider } from './pdf-viewer';
@@ -23,6 +25,11 @@ interface MdxExporterConfig {
   quickExportOverwrite: boolean;
   pdfPageFormat: PaperFormat;
   pdfMargin: string;
+  displayHeaderFooter: boolean;
+  headerTemplate: string;
+  footerTemplate: string;
+  styles: string[];
+  jpegQuality: number;
 }
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -67,6 +74,14 @@ function getConfig(): MdxExporterConfig {
     quickExportOverwrite: config.get<boolean>('quickExportOverwrite', false),
     pdfPageFormat: config.get<PaperFormat>('pdfPageFormat', 'A4'),
     pdfMargin: config.get<string>('pdfMargin', '20mm'),
+    displayHeaderFooter: config.get<boolean>('displayHeaderFooter', false),
+    headerTemplate: config.get<string>('headerTemplate', ''),
+    footerTemplate: config.get<string>(
+      'footerTemplate',
+      '<div style="font-size: 9px; margin: 0 auto;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
+    ),
+    styles: config.get<string[]>('styles', []),
+    jpegQuality: config.get<number>('jpegQuality', 90),
   };
 }
 
@@ -131,7 +146,7 @@ async function showChromeInstallInstructions(): Promise<void> {
 }
 
 // Export format type
-type ExportFormat = 'pdf' | 'docx';
+type ExportFormat = 'pdf' | 'docx' | 'png' | 'jpeg';
 
 async function formatDocumentIfPossible(document: vscode.TextDocument): Promise<void> {
   const editorConfig = vscode.workspace.getConfiguration('editor', document.uri);
@@ -215,8 +230,13 @@ function getDefaultOutputPath(
   format: ExportFormat,
   config: MdxExporterConfig
 ): string {
-  const outputExtension = format === 'pdf' ? '.pdf' : '.docx';
-  return getDefaultOutputPathForExtension(inputPath, outputExtension, config);
+  const extMap: Record<ExportFormat, string> = {
+    pdf: '.pdf',
+    docx: '.docx',
+    png: '.png',
+    jpeg: '.jpg',
+  };
+  return getDefaultOutputPathForExtension(inputPath, extMap[format], config);
 }
 
 // Show save dialog for output file
@@ -224,13 +244,19 @@ async function showSaveDialog(
   defaultPath: string,
   format: ExportFormat
 ): Promise<vscode.Uri | undefined> {
-  const filterLabel = format === 'pdf' ? 'PDF Document' : 'Word Document';
-  const filterExt = format === 'pdf' ? ['pdf'] : ['docx'];
+  const filterMap: Record<ExportFormat, { label: string; ext: string[] }> = {
+    pdf: { label: 'PDF Document', ext: ['pdf'] },
+    docx: { label: 'Word Document', ext: ['docx'] },
+    png: { label: 'PNG Image', ext: ['png'] },
+    jpeg: { label: 'JPEG Image', ext: ['jpg', 'jpeg'] },
+  };
+
+  const filter = filterMap[format];
 
   return await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.file(defaultPath),
     filters: {
-      [filterLabel]: filterExt,
+      [filter.label]: filter.ext,
     },
     title: `Export as ${format.toUpperCase()}`,
   });
@@ -253,7 +279,11 @@ async function showSuccessMessage(outputPath: string, config: MdxExporterConfig)
   if (choice === 'Open File') {
     const outputUri = vscode.Uri.file(outputPath);
     if (path.extname(outputPath).toLowerCase() === '.pdf') {
-      await vscode.commands.executeCommand('vscode.openWith', outputUri, PdfViewerProvider.viewType);
+      await vscode.commands.executeCommand(
+        'vscode.openWith',
+        outputUri,
+        PdfViewerProvider.viewType
+      );
     } else {
       await vscode.env.openExternal(outputUri);
     }
@@ -273,14 +303,29 @@ async function runExport(
   const baseDir = path.dirname(inputPath);
 
   if (format === 'pdf') {
-    const html = markdownToHtml(content, baseDir);
+    const html = markdownToHtml(content, baseDir, config.styles);
     const pdfOptions: PdfOptions = {
       format: config.pdfPageFormat,
       margin: config.pdfMargin,
       baseDir,
+      displayHeaderFooter: config.displayHeaderFooter,
+      headerTemplate: config.headerTemplate,
+      footerTemplate: config.footerTemplate,
+      customStyles: config.styles,
     };
     logLine(`[pdf] Converting with options: ${JSON.stringify(pdfOptions)}`);
     await htmlToPdf(html, outputPath, pdfOptions);
+  } else if (format === 'png' || format === 'jpeg') {
+    const html = markdownToHtml(content, baseDir, config.styles);
+    const imageOptions: ImageOptions = {
+      baseDir,
+      type: format,
+      quality: format === 'jpeg' ? config.jpegQuality : undefined,
+      fullPage: true,
+      customStyles: config.styles,
+    };
+    logLine(`[${format}] Converting with options: ${JSON.stringify(imageOptions)}`);
+    await htmlToImage(html, outputPath, imageOptions);
   } else {
     const docxOptions: DocxOptions = { baseDir };
     logLine(`[docx] Converting with options: ${JSON.stringify(docxOptions)}`);
@@ -416,6 +461,16 @@ async function exportDocx(resourceUri?: vscode.Uri): Promise<void> {
 // Command: Quick Export to DOCX (no save dialog)
 async function quickExportDocx(resourceUri?: vscode.Uri): Promise<void> {
   await exportMarkdown('docx', resourceUri, { skipSaveDialog: true });
+}
+
+// Command: Export to PNG
+async function exportPng(resourceUri?: vscode.Uri): Promise<void> {
+  await exportMarkdown('png', resourceUri);
+}
+
+// Command: Export to JPEG
+async function exportJpeg(resourceUri?: vscode.Uri): Promise<void> {
+  await exportMarkdown('jpeg', resourceUri);
 }
 
 // Command: Convert DOCX to PDF
@@ -591,6 +646,16 @@ export function activate(context: vscode.ExtensionContext): void {
     (resourceUri?: vscode.Uri) => quickExportDocx(resourceUri)
   );
 
+  const exportPngCommand = vscode.commands.registerCommand(
+    'mdxExporter.exportPng',
+    (resourceUri?: vscode.Uri) => exportPng(resourceUri)
+  );
+
+  const exportJpegCommand = vscode.commands.registerCommand(
+    'mdxExporter.exportJpeg',
+    (resourceUri?: vscode.Uri) => exportJpeg(resourceUri)
+  );
+
   const docxToPdfCommand = vscode.commands.registerCommand(
     'mdxExporter.docxToPdf',
     (resourceUri?: vscode.Uri) => exportDocxToPdf(resourceUri)
@@ -612,6 +677,8 @@ export function activate(context: vscode.ExtensionContext): void {
     quickExportPdfCommand,
     exportDocxCommand,
     quickExportDocxCommand,
+    exportPngCommand,
+    exportJpegCommand,
     docxToPdfCommand,
     docxToMarkdownCommand,
     pdfViewerProvider

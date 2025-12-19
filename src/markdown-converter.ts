@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import { full as emoji } from 'markdown-it-emoji';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer, { Browser, PaperFormat } from 'puppeteer-core';
@@ -18,19 +19,31 @@ import {
   ExternalHyperlink,
 } from 'docx';
 
-// Initialize markdown-it with common plugins behavior
+// Initialize markdown-it with emoji plugin
 const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: true,
   breaks: true,
-});
+}).use(emoji);
 
 // Types
 export interface PdfOptions {
   format: PaperFormat;
   margin: string;
   baseDir: string;
+  displayHeaderFooter?: boolean;
+  headerTemplate?: string;
+  footerTemplate?: string;
+  customStyles?: string[];
+}
+
+export interface ImageOptions {
+  baseDir: string;
+  type: 'png' | 'jpeg';
+  quality?: number; // 0-100, jpeg only
+  fullPage?: boolean;
+  customStyles?: string[];
 }
 
 export interface DocxOptions {
@@ -77,8 +90,29 @@ export function findChromePath(): string | null {
 }
 
 // Convert Markdown to HTML with styling
-export function markdownToHtml(content: string, baseDir: string): string {
-  const htmlContent = md.render(content);
+export function markdownToHtml(content: string, baseDir: string, customStyles?: string[]): string {
+  // Process mermaid code blocks
+  const processedContent = content.replace(
+    /```mermaid\n([\s\S]*?)```/g,
+    '<pre class="mermaid">$1</pre>'
+  );
+
+  const htmlContent = md.render(processedContent);
+
+  // Load custom CSS files
+  let customCss = '';
+  if (customStyles && customStyles.length > 0) {
+    for (const stylePath of customStyles) {
+      try {
+        const fullPath = path.isAbsolute(stylePath) ? stylePath : path.join(baseDir, stylePath);
+        if (fs.existsSync(fullPath)) {
+          customCss += fs.readFileSync(fullPath, 'utf-8') + '\n';
+        }
+      } catch {
+        // Skip if file can't be read
+      }
+    }
+  }
 
   // Create full HTML document with styling
   const fullHtml = `<!DOCTYPE html>
@@ -119,6 +153,10 @@ export function markdownToHtml(content: string, baseDir: string): string {
       overflow-x: auto;
     }
     pre code {
+      background: none;
+      padding: 0;
+    }
+    pre.mermaid {
       background: none;
       padding: 0;
     }
@@ -168,7 +206,10 @@ export function markdownToHtml(content: string, baseDir: string): string {
       border-top: 1px solid #ddd;
       margin: 2em 0;
     }
+    ${customCss}
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({startOnLoad:true});</script>
 </head>
 <body>
 ${htmlContent}
@@ -208,17 +249,86 @@ export async function htmlToPdf(
       waitUntil: 'networkidle0',
     });
 
+    // Process header/footer templates
+    let headerTemplate = options.headerTemplate || '';
+    let footerTemplate = options.footerTemplate || '';
+
+    const now = new Date();
+    const isoDate = now.toISOString().split('T')[0];
+    const isoTime = now.toTimeString().split(' ')[0];
+    const isoDateTime = `${isoDate} ${isoTime}`;
+
+    headerTemplate = headerTemplate
+      .replace(/%%ISO-DATE%%/g, isoDate)
+      .replace(/%%ISO-TIME%%/g, isoTime)
+      .replace(/%%ISO-DATETIME%%/g, isoDateTime);
+
+    footerTemplate = footerTemplate
+      .replace(/%%ISO-DATE%%/g, isoDate)
+      .replace(/%%ISO-TIME%%/g, isoTime)
+      .replace(/%%ISO-DATETIME%%/g, isoDateTime);
+
     // Generate PDF
     await page.pdf({
       path: outputPath,
       format: options.format,
       margin: {
-        top: options.margin,
+        top: options.displayHeaderFooter ? '25mm' : options.margin,
         right: options.margin,
-        bottom: options.margin,
+        bottom: options.displayHeaderFooter ? '20mm' : options.margin,
         left: options.margin,
       },
       printBackground: true,
+      displayHeaderFooter: options.displayHeaderFooter ?? false,
+      headerTemplate: headerTemplate,
+      footerTemplate: footerTemplate,
+    });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+// Convert HTML to Image (PNG/JPEG) using Puppeteer
+export async function htmlToImage(
+  html: string,
+  outputPath: string,
+  options: ImageOptions
+): Promise<void> {
+  const chromePath = findChromePath();
+
+  if (!chromePath) {
+    throw new Error(
+      'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge.'
+    );
+  }
+
+  let browser: Browser | null = null;
+
+  try {
+    browser = await puppeteer.launch({
+      executablePath: chromePath,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
+    });
+
+    const page = await browser.newPage();
+
+    // Set viewport for consistent rendering
+    await page.setViewport({ width: 1200, height: 800 });
+
+    // Set content with base URL for relative paths
+    await page.setContent(html, {
+      waitUntil: 'networkidle0',
+    });
+
+    // Generate screenshot
+    await page.screenshot({
+      path: outputPath,
+      type: options.type,
+      quality: options.type === 'jpeg' ? (options.quality ?? 90) : undefined,
+      fullPage: options.fullPage ?? true,
     });
   } finally {
     if (browser) {

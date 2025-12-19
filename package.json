@@ -67,6 +67,16 @@
         "command": "mdxExporter.docxToMarkdown",
         "title": "MDX: Convert DOCX to Markdown",
         "icon": "$(markdown)"
+      },
+      {
+        "command": "mdxExporter.exportPng",
+        "title": "MDX: Export to PNG",
+        "icon": "$(file-media)"
+      },
+      {
+        "command": "mdxExporter.exportJpeg",
+        "title": "MDX: Export to JPEG",
+        "icon": "$(file-media)"
       }
     ],
     "menus": {
@@ -98,6 +108,14 @@
         {
           "command": "mdxExporter.docxToMarkdown",
           "when": "resourceExtname == .docx"
+        },
+        {
+          "command": "mdxExporter.exportPng",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdxExporter.exportJpeg",
+          "when": "editorLangId == markdown"
         }
       ],
       "explorer/context": [
@@ -120,6 +138,16 @@
           "command": "mdxExporter.docxToMarkdown",
           "when": "resourceExtname == .docx",
           "group": "mdxExporter@4"
+        },
+        {
+          "command": "mdxExporter.exportPng",
+          "when": "resourceLangId == markdown",
+          "group": "mdxExporter@5"
+        },
+        {
+          "command": "mdxExporter.exportJpeg",
+          "when": "resourceLangId == markdown",
+          "group": "mdxExporter@6"
         }
       ],
       "editor/title": [
@@ -213,6 +241,36 @@
           "type": "string",
           "default": "20mm",
           "description": "Page margin for PDF export (e.g., '20mm', '1in')."
+        },
+        "mdxExporter.displayHeaderFooter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Display header and footer in PDF export."
+        },
+        "mdxExporter.headerTemplate": {
+          "type": "string",
+          "default": "",
+          "description": "HTML template for PDF header. Use %%ISO-DATE%%, %%ISO-TIME%%, %%ISO-DATETIME%% for dates."
+        },
+        "mdxExporter.footerTemplate": {
+          "type": "string",
+          "default": "<div style=\"font-size: 9px; margin: 0 auto;\"><span class='pageNumber'></span> / <span class='totalPages'></span></div>",
+          "description": "HTML template for PDF footer. Use <span class='pageNumber'></span> and <span class='totalPages'></span>."
+        },
+        "mdxExporter.styles": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "List of custom CSS file paths to apply to exports."
+        },
+        "mdxExporter.jpegQuality": {
+          "type": "number",
+          "default": 90,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Quality of JPEG export (0-100)."
         }
       }
     }
@@ -233,11 +291,13 @@
     "docx": "^8.5.0",
     "mammoth": "^1.11.0",
     "markdown-it": "^14.0.0",
+    "markdown-it-emoji": "^3.0.0",
     "pdfjs-dist": "^5.4.449",
     "puppeteer-core": "^22.0.0"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.0.0",
+    "@types/markdown-it-emoji": "^3.0.1",
     "@types/node": "^20.10.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
