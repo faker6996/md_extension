@@ -10,14 +10,24 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
 - **📖 Markdown Preview**: Open the built-in VS Code Markdown preview side-by-side
 - **📄 Export to PDF**: Convert Markdown files to PDF format
 - **📝 Export to DOCX**: Convert Markdown files to Word documents
-- **🎯 Multiple Access Points**: Use Command Palette, context menu, or editor title buttons
-- **⚙️ Customizable**: Configure output directory, PDF page format, margins, and more
+- **🖼️ Export to PNG/JPEG**: Export Markdown as images
+- **📊 Mermaid Diagrams**: Render flowcharts and diagrams
+- **🔬 PlantUML**: Create UML diagrams (`@startuml...@enduml`)
+- **➗ Math/KaTeX**: Render LaTeX equations (`$...$`, `$$...$$`)
+- **😊 Emoji Support**: Use emoji shortcodes (`:smile:` → 😄)
+- **🎨 Custom CSS**: Apply your own styles to exports
+- **📃 PDF Header/Footer**: Add page numbers and dates
+- **🔍 PDF Viewer**: Built-in PDF viewer with search and copy
+- **📁 DOCX Conversion**: Convert DOCX to PDF or Markdown
+- **⚡ Quick Export**: Export without save dialog
+- **🎯 Multiple Access Points**: Command Palette, context menu, editor title
+- **⚙️ Customizable**: Configure output directory, PDF format, margins
 - **🔒 Privacy First**: No telemetry or data collection
-- **🚀 Zero External Dependencies**: No need to install Pandoc or any other tools
+- **🚀 Zero External Dependencies**: No Pandoc needed
 
 ## Requirements
 
-### For PDF Export
+### For PDF/PNG/JPEG Export
 
 - **Google Chrome**, **Chromium**, or **Microsoft Edge** (most systems already have one installed)
 
@@ -29,13 +39,17 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
 
 ### Commands
 
-| Command                     | Description                         |
-| --------------------------- | ----------------------------------- |
-| `MDX: Open Preview to Side` | Open Markdown preview in side panel |
-| `MDX: Export to PDF`        | Export current Markdown to PDF      |
-| `MDX: Quick Export to PDF`  | Export to default PDF path (no dialog) |
-| `MDX: Export to DOCX`       | Export current Markdown to DOCX     |
-| `MDX: Quick Export to DOCX` | Export to default DOCX path (no dialog) |
+| Command                         | Description                             |
+| ------------------------------- | --------------------------------------- |
+| `MDX: Open Preview to Side`     | Open Markdown preview in side panel     |
+| `MDX: Export to PDF`            | Export current Markdown to PDF          |
+| `MDX: Quick Export to PDF`      | Export to default PDF path (no dialog)  |
+| `MDX: Export to DOCX`           | Export current Markdown to DOCX         |
+| `MDX: Quick Export to DOCX`     | Export to default DOCX path (no dialog) |
+| `MDX: Export to PNG`            | Export Markdown as PNG image            |
+| `MDX: Export to JPEG`           | Export Markdown as JPEG image           |
+| `MDX: Convert DOCX to PDF`      | Convert Word document to PDF            |
+| `MDX: Convert DOCX to Markdown` | Convert Word document to Markdown       |
 
 ### Access Methods
 
@@ -46,8 +60,7 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
    - When viewing a Markdown file, click the icons in the editor title bar
 
 3. **Context Menu**
-   - Right-click on a `.md` file in the Explorer sidebar
-   - Select "MDX: Export to PDF" or "MDX: Export to DOCX"
+   - Right-click on a `.md` or `.docx` file in the Explorer sidebar
 
 ### Export Workflow
 
@@ -63,30 +76,24 @@ A lightweight VS Code extension for previewing and exporting Markdown files to P
 
 Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
 
-| Setting                          | Type    | Default | Description                                 |
-| -------------------------------- | ------- | ------- | ------------------------------------------- |
-| `mdxExporter.outputDirectory`    | string  | (empty) | Default output directory                    |
-| `mdxExporter.openAfterExport`    | boolean | `true`  | Open file after export                      |
-| `mdxExporter.saveBeforeExport`   | boolean | `true`  | Auto-save before export                     |
-| `mdxExporter.formatBeforeExport` | boolean | `true`  | Auto-format before export                   |
+| Setting                            | Type    | Default | Description                                 |
+| ---------------------------------- | ------- | ------- | ------------------------------------------- |
+| `mdxExporter.outputDirectory`      | string  | (empty) | Default output directory                    |
+| `mdxExporter.openAfterExport`      | boolean | `true`  | Open file after export                      |
+| `mdxExporter.saveBeforeExport`     | boolean | `true`  | Auto-save before export                     |
+| `mdxExporter.formatBeforeExport`   | boolean | `true`  | Auto-format before export                   |
 | `mdxExporter.quickExportOverwrite` | boolean | `false` | Quick export overwrites without prompting   |
-| `mdxExporter.pdfPageFormat`      | string  | `A4`    | PDF page format (A4, Letter, Legal, A3, A5) |
-| `mdxExporter.pdfMargin`          | string  | `20mm`  | PDF page margin                             |
-
-### Example Configuration
-
-```json
-{
-  "mdxExporter.outputDirectory": "~/Documents/exports",
-  "mdxExporter.pdfPageFormat": "Letter",
-  "mdxExporter.pdfMargin": "1in",
-  "mdxExporter.openAfterExport": true
-}
-```
+| `mdxExporter.pdfPageFormat`        | string  | `A4`    | PDF page format (A4, Letter, Legal, A3, A5) |
+| `mdxExporter.pdfMargin`            | string  | `20mm`  | PDF page margin                             |
+| `mdxExporter.displayHeaderFooter`  | boolean | `false` | Show header/footer in PDF                   |
+| `mdxExporter.headerTemplate`       | string  | (empty) | PDF header template                         |
+| `mdxExporter.footerTemplate`       | string  | ...     | PDF footer template                         |
+| `mdxExporter.styles`               | array   | `[]`    | Custom CSS file paths                       |
+| `mdxExporter.jpegQuality`          | number  | `90`    | JPEG export quality (0-100)                 |
 
 ## Supported Markdown Features
 
-### PDF Export
+### PDF/PNG/JPEG Export
 
 - Headings (h1-h6)
 - Bold, italic, inline code
@@ -94,9 +101,12 @@ Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
 - Tables
 - Blockquotes
 - Lists (ordered and unordered)
-- Links
-- Images (local files)
+- Links and Images
 - Horizontal rules
+- **Mermaid diagrams** (flowcharts, sequence diagrams, etc.)
+- **PlantUML diagrams** (`@startuml...@enduml`)
+- **Math equations** (inline `$x^2$`, display `$$\int f(x)dx$$`)
+- **Emoji** (`:smile:` → 😄)
 
 ### DOCX Export
 

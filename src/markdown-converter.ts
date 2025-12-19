@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
 import { full as emoji } from 'markdown-it-emoji';
+import texmath from 'markdown-it-texmath';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer, { Browser, PaperFormat } from 'puppeteer-core';
@@ -19,13 +20,18 @@ import {
   ExternalHyperlink,
 } from 'docx';
 
-// Initialize markdown-it with emoji plugin
+// Initialize markdown-it with emoji and math plugins
 const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: true,
   breaks: true,
-}).use(emoji);
+})
+  .use(emoji)
+  .use(texmath, {
+    engine: { renderToString: (tex: string) => `<span class="katex-inline">${tex}</span>` },
+    delimiters: 'dollars',
+  });
 
 // Types
 export interface PdfOptions {
@@ -89,12 +95,50 @@ export function findChromePath(): string | null {
   return null;
 }
 
+// PlantUML encoding for server API
+function encodePlantUml(uml: string): string {
+  // Simple encoding: compress and base64 encode for PlantUML server
+  // PlantUML uses a special encoding: deflate + custom base64
+  const deflate = require('zlib').deflateSync;
+  const compressed = deflate(Buffer.from(uml, 'utf-8'), { level: 9 });
+
+  // PlantUML uses a modified base64 alphabet
+  const encode64 = (num: number): string => {
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_';
+    return chars.charAt(num & 0x3f);
+  };
+
+  let result = '';
+  for (let i = 0; i < compressed.length; i += 3) {
+    const b1 = compressed[i];
+    const b2 = i + 1 < compressed.length ? compressed[i + 1] : 0;
+    const b3 = i + 2 < compressed.length ? compressed[i + 2] : 0;
+
+    result += encode64(b1 >> 2);
+    result += encode64(((b1 & 0x3) << 4) | (b2 >> 4));
+    result += encode64(((b2 & 0xf) << 2) | (b3 >> 6));
+    result += encode64(b3);
+  }
+
+  return result;
+}
+
 // Convert Markdown to HTML with styling
 export function markdownToHtml(content: string, baseDir: string, customStyles?: string[]): string {
   // Process mermaid code blocks
-  const processedContent = content.replace(
+  let processedContent = content.replace(
     /```mermaid\n([\s\S]*?)```/g,
     '<pre class="mermaid">$1</pre>'
+  );
+
+  // Process PlantUML blocks - convert to image using PlantUML server
+  processedContent = processedContent.replace(
+    /@startuml\n?([\s\S]*?)@enduml/g,
+    (_match, umlCode: string) => {
+      // Encode UML for PlantUML server URL
+      const encoded = encodePlantUml(umlCode.trim());
+      return `<img src="https://www.plantuml.com/plantuml/svg/${encoded}" alt="PlantUML Diagram" />`;
+    }
   );
 
   const htmlContent = md.render(processedContent);
@@ -208,6 +252,12 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
     }
     ${customCss}
   </style>
+  <!-- KaTeX for Math -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" 
+    onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+  <!-- Mermaid -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
   <script>mermaid.initialize({startOnLoad:true});</script>
 </head>
