@@ -143,6 +143,18 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
 
   const htmlContent = md.render(processedContent);
 
+  // Load local Mermaid bundle when available to avoid CDN dependency.
+  let mermaidScriptTag = '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>';
+  try {
+    const mermaidPath = path.join(__dirname, '..', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js');
+    if (fs.existsSync(mermaidPath)) {
+      const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
+      mermaidScriptTag = `<script>${mermaidScript}</script>`;
+    }
+  } catch {
+    // Fall back to CDN if local bundle can't be loaded.
+  }
+
   // Load custom CSS files
   let customCss = '';
   if (customStyles && customStyles.length > 0) {
@@ -268,7 +280,7 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" 
     onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
   <!-- Mermaid -->
-  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  ${mermaidScriptTag}
   <script>mermaid.initialize({startOnLoad:true});</script>
 </head>
 <body>

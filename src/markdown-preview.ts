@@ -112,7 +112,7 @@ export class MarkdownPreviewPanel {
 
     // Inject CSP meta tag to allow CDN scripts for WebView
     // This allows Mermaid, KaTeX, and PlantUML to load from jsdelivr
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} https: data:; style-src ${this.panel.webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net;">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} https: data:; style-src ${this.panel.webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net;">`;
 
     // Insert CSP meta tag after <head>
     html = html.replace('<head>', `<head>\n  ${cspMeta}`);

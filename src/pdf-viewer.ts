@@ -340,35 +340,19 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
         textLayerDiv.style.height = viewport.height + 'px';
         pageEl.appendChild(textLayerDiv);
 
-        // Get text content and render text layer
+        // Get text content and render text layer using PDF.js helper
         const textContent = await page.getTextContent();
         
         if (pageToken !== renderToken) {
           return;
         }
 
-        // Render text items
-        for (const item of textContent.items) {
-          if (!item.str) continue;
-          
-          const tx = pdfjsLib.Util.transform(
-            pdfjsLib.Util.transform(viewport.transform, item.transform),
-            [1, 0, 0, -1, 0, 0]
-          );
-          
-          const span = document.createElement('span');
-          span.textContent = item.str;
-          span.style.left = tx[4] + 'px';
-          span.style.top = (viewport.height - tx[5]) + 'px';
-          span.style.fontSize = Math.abs(tx[0]) + 'px';
-          span.style.fontFamily = item.fontName || 'sans-serif';
-          
-          if (tx[0] < 0) {
-            span.style.transform = 'scaleX(-1)';
-          }
-          
-          textLayerDiv.appendChild(span);
-        }
+        await pdfjsLib.renderTextLayer({
+          textContent,
+          container: textLayerDiv,
+          viewport,
+          textDivs: [],
+        }).promise;
 
         canvas.dataset.renderedScale = String(scale);
       } catch (err) {
