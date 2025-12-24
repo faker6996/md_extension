@@ -15,6 +15,7 @@ import {
 } from './markdown-converter';
 import { PdfViewerProvider } from './pdf-viewer';
 import { docxToHtml, docxToMarkdown } from './docx-converter';
+import { MarkdownPreviewPanel } from './markdown-preview';
 
 // Configuration interface
 interface MdxExporterConfig {
@@ -432,7 +433,10 @@ async function exportMarkdown(
   );
 }
 
-// Command: Open Preview to Side
+// Store extension context for preview
+let extensionContext: vscode.ExtensionContext | undefined;
+
+// Command: Open Preview to Side (with Mermaid support)
 async function openPreviewToSide(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !isMarkdownFile(editor.document.uri)) {
@@ -440,7 +444,9 @@ async function openPreviewToSide(): Promise<void> {
     return;
   }
 
-  await vscode.commands.executeCommand('markdown.showPreviewToSide');
+  if (extensionContext) {
+    MarkdownPreviewPanel.createOrShow(extensionContext.extensionUri, editor.document);
+  }
 }
 
 // Command: Export to PDF
@@ -618,6 +624,7 @@ async function convertDocxToMd(resourceUri?: vscode.Uri): Promise<void> {
 
 // Extension activation
 export function activate(context: vscode.ExtensionContext): void {
+  extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('MDX Exporter Lite');
 
   // Register commands

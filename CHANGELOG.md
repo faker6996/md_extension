@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2024-12-24
+
+### Fixed
+
+- **Fixed DOCX export hanging** - Resolved infinite loop bug in inline markdown processing
+
+## [0.3.0] - 2024-12-24
+
+### 🎉 New Feature - Custom Preview with Mermaid Support!
+
+#### Added
+
+- **Custom WebView Preview** - Built-in preview panel that supports Mermaid, KaTeX, PlantUML, and emoji
+- **Live preview updates** - Preview automatically refreshes when editing Markdown files
+- **Fixed Mermaid rendering in PDF/PNG export** - Diagrams now properly render instead of showing raw code
+
 ## [0.1.0] - 2024-12-18
 
 ### 🚀 Major Update - No External Dependencies Required!

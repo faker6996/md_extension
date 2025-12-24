@@ -299,6 +299,34 @@ export async function htmlToPdf(
       waitUntil: 'networkidle0',
     });
 
+    // Wait for Mermaid diagrams to render
+    await page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        // Check if there are any mermaid elements
+        const mermaidElements = document.querySelectorAll('pre.mermaid');
+        if (mermaidElements.length === 0) {
+          resolve();
+          return;
+        }
+
+        // Wait for mermaid to finish rendering (check for SVG elements)
+        const checkMermaid = () => {
+          const svgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
+          if (svgs.length >= mermaidElements.length) {
+            resolve();
+          } else {
+            setTimeout(checkMermaid, 100);
+          }
+        };
+
+        // Start checking after a short delay to allow mermaid.js to initialize
+        setTimeout(checkMermaid, 500);
+      });
+    });
+
+    // Additional wait for any remaining async rendering
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     // Process header/footer templates
     let headerTemplate = options.headerTemplate || '';
     let footerTemplate = options.footerTemplate || '';
@@ -372,6 +400,27 @@ export async function htmlToImage(
     await page.setContent(html, {
       waitUntil: 'networkidle0',
     });
+
+    // Wait for Mermaid diagrams to render
+    await page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        const mermaidElements = document.querySelectorAll('pre.mermaid');
+        if (mermaidElements.length === 0) {
+          resolve();
+          return;
+        }
+        const checkMermaid = () => {
+          const svgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
+          if (svgs.length >= mermaidElements.length) {
+            resolve();
+          } else {
+            setTimeout(checkMermaid, 100);
+          }
+        };
+        setTimeout(checkMermaid, 500);
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Generate screenshot
     await page.screenshot({
@@ -547,66 +596,74 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
 
 // Process inline markdown (bold, italic, code, links)
 function processInlineMarkdown(text: string): TextRun[] {
+  if (!text || text.length === 0) {
+    return [new TextRun({ text: '' })];
+  }
+
   const runs: TextRun[] = [];
-  let remaining = text;
 
-  while (remaining.length > 0) {
-    // Bold
-    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
-    if (boldMatch && remaining.indexOf(boldMatch[0]) === 0) {
-      runs.push(new TextRun({ text: boldMatch[1], bold: true }));
-      remaining = remaining.slice(boldMatch[0].length);
-      continue;
+  // Use a regex to split text by markdown patterns
+  // Match: **bold**, *italic*, `code`, [link](url)
+  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      runs.push(new TextRun({ text: text.slice(lastIndex, match.index) }));
     }
 
-    // Italic
-    const italicMatch = remaining.match(/\*(.+?)\*/);
-    if (italicMatch && remaining.indexOf(italicMatch[0]) === 0) {
-      runs.push(new TextRun({ text: italicMatch[1], italics: true }));
-      remaining = remaining.slice(italicMatch[0].length);
-      continue;
-    }
+    const matched = match[0];
 
-    // Inline code
-    const codeMatch = remaining.match(/`(.+?)`/);
-    if (codeMatch && remaining.indexOf(codeMatch[0]) === 0) {
+    // Bold: **text**
+    if (matched.startsWith('**') && matched.endsWith('**')) {
       runs.push(
         new TextRun({
-          text: codeMatch[1],
+          text: matched.slice(2, -2),
+          bold: true,
+        })
+      );
+    }
+    // Italic: *text*
+    else if (matched.startsWith('*') && matched.endsWith('*')) {
+      runs.push(
+        new TextRun({
+          text: matched.slice(1, -1),
+          italics: true,
+        })
+      );
+    }
+    // Code: `text`
+    else if (matched.startsWith('`') && matched.endsWith('`')) {
+      runs.push(
+        new TextRun({
+          text: matched.slice(1, -1),
           font: 'Consolas',
-          shading: { fill: 'f5f5f5' },
         })
       );
-      remaining = remaining.slice(codeMatch[0].length);
-      continue;
+    }
+    // Link: [text](url)
+    else if (matched.startsWith('[')) {
+      const linkTextMatch = matched.match(/\[([^\]]+)\]/);
+      if (linkTextMatch) {
+        runs.push(
+          new TextRun({
+            text: linkTextMatch[1],
+            color: '0066cc',
+            underline: {},
+          })
+        );
+      }
     }
 
-    // Link (simplified - just show text)
-    const linkMatch = remaining.match(/\[([^\]]+)\]\(([^)]+)\)/);
-    if (linkMatch && remaining.indexOf(linkMatch[0]) === 0) {
-      runs.push(
-        new TextRun({
-          text: linkMatch[1],
-          color: '0066cc',
-          underline: {},
-        })
-      );
-      remaining = remaining.slice(linkMatch[0].length);
-      continue;
-    }
+    lastIndex = pattern.lastIndex;
+  }
 
-    // Regular text - find next special character
-    const nextSpecial = remaining.search(/\*|`|\[/);
-    if (nextSpecial === -1) {
-      runs.push(new TextRun({ text: remaining }));
-      break;
-    } else if (nextSpecial === 0) {
-      runs.push(new TextRun({ text: remaining[0] }));
-      remaining = remaining.slice(1);
-    } else {
-      runs.push(new TextRun({ text: remaining.slice(0, nextSpecial) }));
-      remaining = remaining.slice(nextSpecial);
-    }
+  // Add remaining text after last match
+  if (lastIndex < text.length) {
+    runs.push(new TextRun({ text: text.slice(lastIndex) }));
   }
 
   return runs.length > 0 ? runs : [new TextRun({ text })];
