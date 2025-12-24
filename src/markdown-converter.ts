@@ -166,10 +166,19 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <base href="file://${baseDir}/">
   <style>
+    :root {
+      --vscode-foreground: #333;
+      --vscode-editor-background: #fff;
+      --vscode-textBlockQuote-background: #f9f9f9;
+      --vscode-textCodeBlock-background: #f5f5f5;
+      --vscode-textLink-foreground: #0066cc;
+      --vscode-textSeparator-foreground: #ddd;
+    }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
       line-height: 1.6;
-      color: #333;
+      color: var(--vscode-foreground);
+      background-color: var(--vscode-editor-background);
       max-width: 800px;
       margin: 0 auto;
       padding: 20px;
@@ -178,20 +187,21 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
       margin-top: 1.5em;
       margin-bottom: 0.5em;
       font-weight: 600;
+      color: var(--vscode-foreground);
     }
-    h1 { font-size: 2em; border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
-    h2 { font-size: 1.5em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+    h1 { font-size: 2em; border-bottom: 2px solid var(--vscode-textSeparator-foreground); padding-bottom: 0.3em; }
+    h2 { font-size: 1.5em; border-bottom: 1px solid var(--vscode-textSeparator-foreground); padding-bottom: 0.3em; }
     h3 { font-size: 1.25em; }
     p { margin: 1em 0; }
     code {
-      background-color: #f5f5f5;
+      background-color: var(--vscode-textCodeBlock-background);
       padding: 0.2em 0.4em;
       border-radius: 3px;
-      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-family: var(--vscode-editor-font-family, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
       font-size: 0.9em;
     }
     pre {
-      background-color: #f5f5f5;
+      background-color: var(--vscode-textCodeBlock-background);
       padding: 1em;
       border-radius: 5px;
       overflow-x: auto;
@@ -205,11 +215,11 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
       padding: 0;
     }
     blockquote {
-      border-left: 4px solid #ddd;
+      border-left: 4px solid var(--vscode-textSeparator-foreground);
       margin: 1em 0;
       padding: 0.5em 1em;
-      color: #666;
-      background-color: #f9f9f9;
+      color: var(--vscode-foreground);
+      background-color: var(--vscode-textBlockQuote-background);
     }
     table {
       border-collapse: collapse;
@@ -217,23 +227,23 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
       margin: 1em 0;
     }
     th, td {
-      border: 1px solid #ddd;
+      border: 1px solid var(--vscode-textSeparator-foreground);
       padding: 8px 12px;
       text-align: left;
     }
     th {
-      background-color: #f5f5f5;
+      background-color: var(--vscode-textCodeBlock-background);
       font-weight: 600;
     }
     tr:nth-child(even) {
-      background-color: #fafafa;
+      background-color: var(--vscode-textBlockQuote-background);
     }
     img {
       max-width: 100%;
       height: auto;
     }
     a {
-      color: #0066cc;
+      color: var(--vscode-textLink-foreground);
       text-decoration: none;
     }
     a:hover {
@@ -247,7 +257,7 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
     }
     hr {
       border: none;
-      border-top: 1px solid #ddd;
+      border-top: 1px solid var(--vscode-textSeparator-foreground);
       margin: 2em 0;
     }
     ${customCss}
@@ -576,15 +586,25 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         i < lines.length &&
         lines[i].trim() &&
         !lines[i].startsWith('#') &&
-        !lines[i].startsWith('```')
+        !lines[i].startsWith('```') &&
+        !lines[i].startsWith('>') &&
+        !/^[-*+]\s/.test(lines[i]) &&
+        !/^\d+\.\s/.test(lines[i]) &&
+        !lines[i].includes('|') &&
+        !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim()) &&
+        !/^!\[/.test(lines[i])
       ) {
         paragraphLines.push(lines[i]);
         i++;
+        // Safety limit to prevent extremely large paragraphs
+        if (paragraphLines.length > 1000) break;
       }
-      blocks.push({
-        type: 'paragraph',
-        content: paragraphLines.join(' '),
-      });
+      if (paragraphLines.length > 0) {
+        blocks.push({
+          type: 'paragraph',
+          content: paragraphLines.join(' '),
+        });
+      }
       continue;
     }
 
