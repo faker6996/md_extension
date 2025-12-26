@@ -879,6 +879,15 @@ export async function markdownToDocx(
 
   // Create document
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: {
+            font: 'Times New Roman',
+          },
+        },
+      },
+    },
     sections: [
       {
         children,
