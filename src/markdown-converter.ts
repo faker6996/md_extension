@@ -292,9 +292,8 @@ export function markdownToHtml(
       padding: 0;
     }
     pre.mermaid {
-      background-color: white;
-      padding: 1em;
-      border-radius: 5px;
+      background: none;
+      padding: 0;
       display: flex;
       justify-content: center;
     }
