@@ -295,8 +295,7 @@ export function markdownToHtml(
     pre.mermaid {
       background: none;
       padding: 0;
-      display: flex;
-      justify-content: center;
+      text-align: center;
     }
     blockquote {
       border-left: 4px solid var(--vscode-textSeparator-foreground);

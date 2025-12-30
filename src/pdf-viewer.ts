@@ -199,12 +199,13 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
       right: 0;
       bottom: 0;
       overflow: hidden;
-      opacity: 0.25;
+      opacity: 1;
       line-height: 1.0;
       -webkit-text-size-adjust: none;
       -moz-text-size-adjust: none;
       text-size-adjust: none;
       forced-color-adjust: none;
+      z-index: 2;
     }
     
     .textLayer span,
