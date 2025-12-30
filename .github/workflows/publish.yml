@@ -13,38 +13,54 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-    - name: Configure Git
-      run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
 
-    - name: Install dependencies
-      run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Run Build
-      run: npm run compile
+      - name: Run Build
+        run: npm run compile
 
-    - name: Bump Version & Push Tag
-      id: bump_version
-      run: |
-        npm version patch -m "Bump version to %s [skip ci]"
-        git push --follow-tags origin master
+      - name: Bump Version & Push Tag
+        id: bump_version
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
 
-    - name: Publish to VS Code Marketplace
-      uses: HaaLeo/publish-vscode-extension@v1
-      with:
-        pat: ${{ secrets.VSCE_PAT }}
-        registryUrl: https://marketplace.visualstudio.com
+          # Tăng version trong package.json nhưng không tạo tag git ngay
+          npm version patch --no-git-tag-version
+
+          # Lấy số version mới
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          TAG="v$NEW_VERSION"
+
+          # Commit thay đổi
+          git commit -am "Bump version to $NEW_VERSION [skip ci]"
+
+          # Tạo tag (force để ghi đè nếu đã tồn tại do lần chạy trước bị lỗi)
+          git tag -f "$TAG"
+
+          # Đẩy code và tag lên (force để ghi đè remote tag)
+          git push -f origin master --tags
+
+      - name: Publish to VS Code Marketplace
+        uses: HaaLeo/publish-vscode-extension@v1
+        with:
+          pat: ${{ secrets.VSCE_PAT }}
+          registryUrl: https://marketplace.visualstudio.com
