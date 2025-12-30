@@ -260,7 +260,7 @@ export function markdownToHtml(
       line-height: 1.6;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
-      max-width: 800px;
+      max-width: ${isPreview ? 'none' : '800px'};
       margin: 0 auto;
       padding: 20px;
     }
@@ -292,8 +292,11 @@ export function markdownToHtml(
       padding: 0;
     }
     pre.mermaid {
-      background: none;
-      padding: 0;
+      background-color: white;
+      padding: 1em;
+      border-radius: 5px;
+      display: flex;
+      justify-content: center;
     }
     blockquote {
       border-left: 4px solid var(--vscode-textSeparator-foreground);
