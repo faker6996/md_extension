@@ -221,6 +221,7 @@ export function markdownToHtml(
           startOnLoad: true,
           theme: isDark ? 'dark' : 'default',
           securityLevel: 'loose',
+          fontFamily: 'var(--vscode-font-family)',
         });
       };
       
