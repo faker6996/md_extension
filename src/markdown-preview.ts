@@ -108,7 +108,7 @@ export class MarkdownPreviewPanel {
     const customStyles: string[] = config.get('styles', []);
 
     // Generate HTML using the same function as PDF export
-    let html = markdownToHtml(content, baseDir, customStyles);
+    let html = markdownToHtml(content, baseDir, customStyles, true);
 
     // Inject CSP meta tag to allow CDN scripts for WebView
     // This allows Mermaid, KaTeX, and PlantUML to load from jsdelivr

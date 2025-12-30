@@ -124,7 +124,12 @@ function encodePlantUml(uml: string): string {
 }
 
 // Convert Markdown to HTML with styling
-export function markdownToHtml(content: string, baseDir: string, customStyles?: string[]): string {
+export function markdownToHtml(
+  content: string,
+  baseDir: string,
+  customStyles?: string[],
+  isPreview: boolean = false
+): string {
   // Process mermaid code blocks
   let processedContent = content.replace(
     /```mermaid\n([\s\S]*?)```/g,
@@ -144,9 +149,17 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
   const htmlContent = md.render(processedContent);
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
-  let mermaidScriptTag = '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>';
+  let mermaidScriptTag =
+    '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>';
   try {
-    const mermaidPath = path.join(__dirname, '..', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js');
+    const mermaidPath = path.join(
+      __dirname,
+      '..',
+      'node_modules',
+      'mermaid',
+      'dist',
+      'mermaid.min.js'
+    );
     if (fs.existsSync(mermaidPath)) {
       const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
       mermaidScriptTag = `<script>${mermaidScript}</script>`;
@@ -170,6 +183,69 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
     }
   }
 
+  // Define CSS variables based on mode
+  let cssVariables = '';
+  if (!isPreview) {
+    // Default light theme for PDF/Export
+    cssVariables = `
+    :root {
+      --vscode-foreground: #333;
+      --vscode-editor-background: #fff;
+      --vscode-textBlockQuote-background: #f9f9f9;
+      --vscode-textCodeBlock-background: #f5f5f5;
+      --vscode-textLink-foreground: #0066cc;
+      --vscode-textSeparator-foreground: #ddd;
+    }`;
+  } else {
+    // For Preview, we rely on VS Code's injected variables
+    cssVariables = `
+    :root {
+      --vscode-foreground: var(--vscode-editor-foreground);
+      --vscode-editor-background: var(--vscode-editor-background);
+      --vscode-textBlockQuote-background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.1));
+      --vscode-textCodeBlock-background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+      --vscode-textLink-foreground: var(--vscode-textLink-foreground);
+      --vscode-textSeparator-foreground: var(--vscode-textSeparator-foreground, #888);
+    }`;
+  }
+
+  // Mermaid initialization
+  let mermaidInit = '';
+  if (isPreview) {
+    // Dynamic theme detection for preview
+    mermaidInit = `
+    <script>
+      const initMermaid = () => {
+        const isDark = document.body.classList.contains('vscode-dark');
+        mermaid.initialize({
+          startOnLoad: true,
+          theme: isDark ? 'dark' : 'default',
+          securityLevel: 'loose',
+        });
+      };
+      
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initMermaid);
+      } else {
+        initMermaid();
+      }
+      
+      // Re-render on theme change
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.attributeName === 'class') {
+            // Simple reload to re-render mermaid with new theme
+            // This is the most reliable way to switch mermaid themes
+            location.reload();
+          }
+        });
+      });
+      observer.observe(document.body, { attributes: true });
+    </script>`;
+  } else {
+    mermaidInit = `<script>mermaid.initialize({startOnLoad:true, theme: 'default'});</script>`;
+  }
+
   // Create full HTML document with styling
   const fullHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -178,14 +254,7 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <base href="file://${baseDir}/">
   <style>
-    :root {
-      --vscode-foreground: #333;
-      --vscode-editor-background: #fff;
-      --vscode-textBlockQuote-background: #f9f9f9;
-      --vscode-textCodeBlock-background: #f5f5f5;
-      --vscode-textLink-foreground: #0066cc;
-      --vscode-textSeparator-foreground: #ddd;
-    }
+    ${cssVariables}
     body {
       font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
       line-height: 1.6;
@@ -281,7 +350,7 @@ export function markdownToHtml(content: string, baseDir: string, customStyles?: 
     onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
   <!-- Mermaid -->
   ${mermaidScriptTag}
-  <script>mermaid.initialize({startOnLoad:true});</script>
+  ${mermaidInit}
 </head>
 <body>
 ${htmlContent}
