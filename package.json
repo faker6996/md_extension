@@ -2,7 +2,7 @@
   "name": "mdx-exporter-lite",
   "displayName": "MD & PDF Toolkit",
   "description": "Preview Markdown, export to PDF/DOCX, and view PDF files - all in one toolkit",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "publisher": "bachtv",
   "license": "MIT",
   "repository": {
