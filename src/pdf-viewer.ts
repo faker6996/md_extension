@@ -570,7 +570,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
         caseSensitive: false,
         entireWord: false,
         phraseSearch: true,
-        highlightAll: true,
+        highlightAll: false,
         findPrevious: Boolean(findPrevious),
       });
     }

@@ -20,6 +20,7 @@ export async function docxToHtml(docxPath: string): Promise<string> {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       line-height: 1.6;
       color: #333;
+      background: #fff;
       max-width: 800px;
       margin: 0 auto;
       padding: 20px;
@@ -29,10 +30,34 @@ export async function docxToHtml(docxPath: string): Promise<string> {
       margin-bottom: 0.5em;
       font-weight: 600;
     }
-    h1 { font-size: 2em; border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
-    h2 { font-size: 1.5em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+    h1 { font-size: 2em; border-bottom: 2px solid #ddd; padding-bottom: 0.3em; }
+    h2 { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }
     h3 { font-size: 1.25em; }
     p { margin: 1em 0; }
+    code {
+      background-color: #f5f5f5;
+      padding: 0.2em 0.4em;
+      border-radius: 3px;
+      font-family: Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.9em;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 1em;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+    blockquote {
+      border-left: 4px solid #ddd;
+      margin: 1em 0;
+      padding: 0.5em 1em;
+      color: #333;
+      background-color: #f9f9f9;
+    }
     table {
       border-collapse: collapse;
       width: 100%;
@@ -47,15 +72,32 @@ export async function docxToHtml(docxPath: string): Promise<string> {
       background-color: #f5f5f5;
       font-weight: 600;
     }
+    tr:nth-child(even) {
+      background-color: #fafafa;
+    }
     img {
       max-width: 100%;
       height: auto;
+      display: block;
+      margin: 1em auto;
     }
     ul, ol {
       padding-left: 2em;
     }
     li {
       margin: 0.3em 0;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 2em 0;
+    }
+    a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
@@ -82,6 +124,45 @@ export async function docxToMarkdown(docxPath: string): Promise<string> {
  */
 function htmlToMarkdown(html: string): string {
   let md = html;
+  const diagramBlocks: string[] = [];
+
+  const buildDiagramBlock = (marker: string): string => {
+    if (!marker.startsWith('MDX_DIAGRAM:')) {
+      return '';
+    }
+    const payload = marker.slice('MDX_DIAGRAM:'.length);
+    try {
+      const json = Buffer.from(payload, 'base64').toString('utf-8');
+      const data = JSON.parse(json) as { type?: string; code?: string };
+      if (!data || typeof data.type !== 'string' || typeof data.code !== 'string') {
+        return '';
+      }
+      const type = data.type.trim() || 'mermaid';
+      const code = data.code.trimEnd();
+      return `\n\n\`\`\`${type}\n${code}\n\`\`\`\n\n`;
+    } catch {
+      return '';
+    }
+  };
+
+  const storeDiagramBlock = (marker: string): string => {
+    const block = buildDiagramBlock(marker);
+    if (!block) {
+      return '';
+    }
+    const token = `__MDX_DIAGRAM_BLOCK_${diagramBlocks.length}__`;
+    diagramBlocks.push(block);
+    return token;
+  };
+
+  // Extract diagram markers embedded as image alt text.
+  md = md.replace(
+    /<img[^>]*alt=['"](MDX_DIAGRAM:[^'"]+)['"][^>]*>/gi,
+    (_match, marker: string) => storeDiagramBlock(marker)
+  );
+
+  // Extract diagram markers embedded as hidden text paragraphs.
+  md = md.replace(/MDX_DIAGRAM:[A-Za-z0-9+/=]+/g, (marker) => storeDiagramBlock(marker));
 
   // Headings
   md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n');
@@ -138,6 +219,12 @@ function htmlToMarkdown(html: string): string {
   // Clean up multiple newlines
   md = md.replace(/\n{3,}/g, '\n\n');
   md = md.trim();
+
+  // Restore diagram code blocks.
+  diagramBlocks.forEach((block, index) => {
+    const token = `__MDX_DIAGRAM_BLOCK_${index}__`;
+    md = md.replace(new RegExp(token, 'g'), block);
+  });
 
   return md;
 }

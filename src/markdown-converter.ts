@@ -983,6 +983,17 @@ function scaleToMaxWidth(width: number, height: number, maxWidth: number): { wid
   };
 }
 
+function encodeDiagramMarker(type: 'mermaid' | 'plantuml', code: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      type,
+      code,
+    }),
+    'utf-8'
+  ).toString('base64');
+  return `MDX_DIAGRAM:${payload}`;
+}
+
 // Convert Markdown to DOCX
 export async function markdownToDocx(
   content: string,
@@ -1031,6 +1042,7 @@ export async function markdownToDocx(
           try {
             const image = await renderDiagramToPngBuffer(block.diagramType, block.content);
             if (image) {
+              const marker = encodeDiagramMarker(block.diagramType, block.content);
               const scaled = scaleToMaxWidth(image.width, image.height, 600);
               children.push(
                 new Paragraph({
@@ -1041,9 +1053,26 @@ export async function markdownToDocx(
                         width: scaled.width,
                         height: scaled.height,
                       },
+                      altText: {
+                        name: 'MDX Diagram',
+                        title: 'MDX Diagram',
+                        description: marker,
+                      },
                     }),
                   ],
                   alignment: AlignmentType.CENTER,
+                })
+              );
+              children.push(
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: marker,
+                      vanish: true,
+                      size: 2,
+                      color: 'FFFFFF',
+                    }),
+                  ],
                 })
               );
               break;
