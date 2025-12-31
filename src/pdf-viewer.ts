@@ -208,14 +208,6 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
       z-index: 2;
     }
 
-    .textLayer .search-highlight {
-      background-color: rgba(255, 255, 0, 0.4);
-      border-radius: 2px;
-    }
-    
-    .textLayer .search-highlight.current {
-      background-color: rgba(255, 165, 0, 0.6);
-    }
   </style>
 </head>
 <body>
@@ -256,6 +248,27 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     let intersectionObserver = null;
     let estimatedPageWidth = 0;
     let estimatedPageHeight = 0;
+
+    const eventBus = new pdfjsViewer.EventBus();
+    const linkService = {
+      eventBus,
+      get pagesCount() {
+        return pdfDoc ? pdfDoc.numPages : 0;
+      },
+      get page() {
+        return currentPage;
+      },
+      set page(value) {
+        currentPage = value;
+        scrollToPage(currentPage);
+        updatePageInfo();
+      },
+    };
+    const findController = new pdfjsViewer.PDFFindController({
+      linkService,
+      eventBus,
+      updateMatchesCountOnProgress: true,
+    });
     
     const container = document.getElementById('container');
     const loading = document.getElementById('loading');
@@ -316,9 +329,15 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
 
         // Render text layer for selection/copy
         const viewer = window.pdfjsViewer;
-        if (viewer && viewer.TextLayerBuilder) {
+        if (viewer && viewer.TextLayerBuilder && viewer.TextHighlighter) {
+          const highlighter = new viewer.TextHighlighter({
+            findController,
+            eventBus,
+            pageIndex: pageNum - 1,
+          });
           const textLayerBuilder = new viewer.TextLayerBuilder({
             pdfPage: page,
+            highlighter,
             onAppend: (layerDiv) => pageEl.appendChild(layerDiv),
           });
           await textLayerBuilder.render({ viewport });
@@ -506,6 +525,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     // Load PDF
     pdfjsLib.getDocument(pdfUri).promise.then(pdf => {
       pdfDoc = pdf;
+      findController.setDocument(pdfDoc);
       loading.style.display = 'none';
       prevBtn.disabled = false;
       nextBtn.disabled = pdfDoc.numPages <= 1;
@@ -539,111 +559,72 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     const searchPrevBtn = document.getElementById('searchPrev');
     const searchNextBtn = document.getElementById('searchNext');
     const searchInfo = document.getElementById('searchInfo');
-    
-    let searchResults = [];
-    let currentSearchIndex = -1;
     let searchTimeout = null;
 
-    function clearSearchHighlights() {
-      document.querySelectorAll('.textLayer span.search-highlight').forEach(el => {
-        el.classList.remove('search-highlight', 'current');
+    function dispatchFind(type, findPrevious) {
+      const query = searchInput.value;
+      eventBus.dispatch('find', {
+        source: findController,
+        type,
+        query,
+        caseSensitive: false,
+        entireWord: false,
+        phraseSearch: true,
+        highlightAll: true,
+        findPrevious: Boolean(findPrevious),
       });
     }
 
-    function highlightSearchResults(query) {
-      clearSearchHighlights();
-      searchResults = [];
-      currentSearchIndex = -1;
-
-      if (!query || query.length < 2) {
-        updateSearchInfo();
-        return;
-      }
-
-      const lowerQuery = query.toLowerCase();
-      const textLayers = document.querySelectorAll('.textLayer');
-
-      textLayers.forEach((textLayer, pageIndex) => {
-        const spans = textLayer.querySelectorAll('span');
-        spans.forEach(span => {
-          const text = span.textContent || '';
-          if (!text) {
-            return;
-          }
-          if (text.toLowerCase().includes(lowerQuery)) {
-            span.classList.add('search-highlight');
-            searchResults.push({ element: span, pageNum: pageIndex + 1 });
-          }
-        });
-      });
-
-      if (searchResults.length > 0) {
-        currentSearchIndex = 0;
-        highlightCurrentResult();
-      }
-      
-      updateSearchInfo();
-      updateSearchButtons();
-    }
-
-    function highlightCurrentResult() {
-      document.querySelectorAll('.search-highlight.current').forEach(el => {
-        el.classList.remove('current');
-      });
-
-      if (currentSearchIndex >= 0 && currentSearchIndex < searchResults.length) {
-        const result = searchResults[currentSearchIndex];
-        result.element.classList.add('current');
-        result.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-
-    function updateSearchInfo() {
-      if (searchResults.length === 0) {
-        searchInfo.textContent = searchInput.value.length >= 2 ? 'No results' : '';
-      } else {
-        searchInfo.textContent = (currentSearchIndex + 1) + ' / ' + searchResults.length;
-      }
-    }
-
-    function updateSearchButtons() {
-      searchPrevBtn.disabled = searchResults.length === 0;
-      searchNextBtn.disabled = searchResults.length === 0;
+    function clearFind() {
+      eventBus.dispatch('findbarclose', { source: findController });
+      searchInfo.textContent = '';
+      searchPrevBtn.disabled = true;
+      searchNextBtn.disabled = true;
     }
 
     searchInput.addEventListener('input', () => {
       clearTimeout(searchTimeout);
       searchTimeout = setTimeout(() => {
-        highlightSearchResults(searchInput.value);
+        if (!searchInput.value || searchInput.value.length < 2) {
+          clearFind();
+          return;
+        }
+        dispatchFind(null, false);
       }, 300);
     });
 
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         if (e.shiftKey) {
-          goToPrevResult();
+          dispatchFind('again', true);
         } else {
-          goToNextResult();
+          dispatchFind('again', false);
         }
       }
     });
 
-    function goToNextResult() {
-      if (searchResults.length === 0) return;
-      currentSearchIndex = (currentSearchIndex + 1) % searchResults.length;
-      highlightCurrentResult();
-      updateSearchInfo();
-    }
+    searchNextBtn.addEventListener('click', () => dispatchFind('again', false));
+    searchPrevBtn.addEventListener('click', () => dispatchFind('again', true));
 
-    function goToPrevResult() {
-      if (searchResults.length === 0) return;
-      currentSearchIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
-      highlightCurrentResult();
-      updateSearchInfo();
-    }
-
-    searchNextBtn.addEventListener('click', goToNextResult);
-    searchPrevBtn.addEventListener('click', goToPrevResult);
+    eventBus.on('updatefindmatchescount', (evt) => {
+      const total = evt?.matchesCount?.total ?? 0;
+      const current = evt?.matchesCount?.current ?? 0;
+      if (!searchInput.value || searchInput.value.length < 2) {
+        searchInfo.textContent = '';
+        searchPrevBtn.disabled = true;
+        searchNextBtn.disabled = true;
+        return;
+      }
+      if (total === 0) {
+        searchInfo.textContent = 'No results';
+        searchPrevBtn.disabled = true;
+        searchNextBtn.disabled = true;
+      } else {
+        searchInfo.textContent = `${current} / ${total}`;
+        searchPrevBtn.disabled = false;
+        searchNextBtn.disabled = false;
+      }
+    });
   </script>
 </body>
 </html>`;
