@@ -3,7 +3,7 @@ import { full as emoji } from 'markdown-it-emoji';
 import texmath from 'markdown-it-texmath';
 import * as fs from 'fs';
 import * as path from 'path';
-import puppeteer, { Browser, PaperFormat } from 'puppeteer-core';
+import puppeteer, { Browser, Page, PaperFormat } from 'puppeteer-core';
 import {
   Document,
   Packer,
@@ -123,6 +123,37 @@ function encodePlantUml(uml: string): string {
   return result;
 }
 
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getMermaidScriptTag(): string {
+  let mermaidScriptTag =
+    '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>';
+  try {
+    const mermaidPath = path.join(
+      __dirname,
+      '..',
+      'node_modules',
+      'mermaid',
+      'dist',
+      'mermaid.min.js'
+    );
+    if (fs.existsSync(mermaidPath)) {
+      const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
+      mermaidScriptTag = `<script>${mermaidScript}</script>`;
+    }
+  } catch {
+    // Fall back to CDN if local bundle can't be loaded.
+  }
+  return mermaidScriptTag;
+}
+
 // Convert Markdown to HTML with styling
 export function markdownToHtml(
   content: string,
@@ -149,24 +180,7 @@ export function markdownToHtml(
   const htmlContent = md.render(processedContent);
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
-  let mermaidScriptTag =
-    '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>';
-  try {
-    const mermaidPath = path.join(
-      __dirname,
-      '..',
-      'node_modules',
-      'mermaid',
-      'dist',
-      'mermaid.min.js'
-    );
-    if (fs.existsSync(mermaidPath)) {
-      const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
-      mermaidScriptTag = `<script>${mermaidScript}</script>`;
-    }
-  } catch {
-    // Fall back to CDN if local bundle can't be loaded.
-  }
+  const mermaidScriptTag = getMermaidScriptTag();
 
   // Load custom CSS files
   let customCss = '';
@@ -529,11 +543,159 @@ export async function htmlToImage(
   }
 }
 
+interface DiagramImage {
+  data: Buffer;
+  width: number;
+  height: number;
+}
+
+async function renderDiagramToPngBuffer(
+  diagramType: 'mermaid' | 'plantuml',
+  code: string
+): Promise<DiagramImage | null> {
+  const chromePath = findChromePath();
+
+  if (!chromePath) {
+    throw new Error(
+      'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge.'
+    );
+  }
+
+  let browser: Browser | null = null;
+
+  const buildHtml = (): { html: string; selector: string } => {
+    if (diagramType === 'mermaid') {
+      const mermaidScriptTag = getMermaidScriptTag();
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${mermaidScriptTag}
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+  </script>
+  <style>
+    body { margin: 0; padding: 16px; background: white; }
+    #diagram { display: inline-block; }
+  </style>
+</head>
+<body>
+  <div id="diagram" class="mermaid">${escapeHtml(code)}</div>
+</body>
+</html>`;
+      return { html, selector: '#diagram svg' };
+    }
+
+    const plantUmlSource = /@startuml[\s\S]*@enduml/.test(code)
+      ? code
+      : `@startuml\n${code}\n@enduml`;
+    const encoded = encodePlantUml(plantUmlSource.trim());
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin: 0; padding: 16px; background: white; }
+    #diagram { display: inline-block; }
+  </style>
+</head>
+<body>
+  <img id="diagram" src="https://www.plantuml.com/plantuml/svg/${encoded}" alt="PlantUML Diagram" />
+</body>
+</html>`;
+    return { html, selector: '#diagram' };
+  };
+
+  const waitForDiagram = async (page: Page, selector: string): Promise<void> => {
+    await page.waitForSelector(selector, { timeout: 10000 });
+    if (diagramType === 'plantuml') {
+      await page.waitForFunction(
+        () => {
+          const img = document.querySelector('#diagram') as HTMLImageElement | null;
+          return Boolean(img && img.complete && img.naturalWidth > 0);
+        },
+        { timeout: 10000 }
+      );
+    }
+  };
+
+  try {
+    browser = await puppeteer.launch({
+      executablePath: chromePath,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
+    });
+
+    const page = await browser.newPage();
+    const padding = 8;
+    const { html, selector } = buildHtml();
+    const baseViewport = { width: 1600, height: 1200 };
+    await page.setViewport(baseViewport);
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await waitForDiagram(page, selector);
+
+    let element = await page.$(selector);
+    let box = element ? await element.boundingBox() : null;
+    if (box && (box.width + padding * 2 > baseViewport.width || box.height + padding * 2 > baseViewport.height)) {
+      await page.setViewport({
+        width: Math.ceil(box.width + padding * 2),
+        height: Math.ceil(box.height + padding * 2),
+      });
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      await waitForDiagram(page, selector);
+      element = await page.$(selector);
+      box = element ? await element.boundingBox() : null;
+    }
+
+    if (!box) {
+      return null;
+    }
+
+    const clipX = Math.max(0, box.x - padding);
+    const clipY = Math.max(0, box.y - padding);
+    const clipWidth = Math.max(1, box.width + padding * 2);
+    const clipHeight = Math.max(1, box.height + padding * 2);
+
+    const buffer = (await page.screenshot({
+      type: 'png',
+      clip: {
+        x: clipX,
+        y: clipY,
+        width: clipWidth,
+        height: clipHeight,
+      },
+    })) as Buffer;
+
+    return {
+      data: buffer,
+      width: Math.round(clipWidth),
+      height: Math.round(clipHeight),
+    };
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
 // Parse markdown content into structured blocks for DOCX
 interface MarkdownBlock {
-  type: 'heading' | 'paragraph' | 'code' | 'list' | 'table' | 'blockquote' | 'hr' | 'image';
+  type:
+    | 'heading'
+    | 'paragraph'
+    | 'code'
+    | 'diagram'
+    | 'list'
+    | 'table'
+    | 'blockquote'
+    | 'hr'
+    | 'image';
   level?: number;
   content?: string;
+  language?: string;
+  diagramType?: 'mermaid' | 'plantuml';
   items?: string[];
   ordered?: boolean;
   rows?: string[][];
@@ -570,16 +732,32 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
 
     // Code block
     if (line.startsWith('```')) {
+      const language = line.slice(3).trim().toLowerCase();
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith('```')) {
         codeLines.push(lines[i]);
         i++;
       }
-      blocks.push({
-        type: 'code',
-        content: codeLines.join('\n'),
-      });
+      const codeContent = codeLines.join('\n');
+      const isMermaid = language === 'mermaid';
+      const isPlantUml =
+        language === 'plantuml' ||
+        language === 'uml' ||
+        /@startuml[\s\S]*@enduml/.test(codeContent);
+      if (isMermaid || isPlantUml) {
+        blocks.push({
+          type: 'diagram',
+          diagramType: isMermaid ? 'mermaid' : 'plantuml',
+          content: codeContent,
+        });
+      } else {
+        blocks.push({
+          type: 'code',
+          content: codeContent,
+          language,
+        });
+      }
       i++;
       continue;
     }
@@ -794,6 +972,17 @@ function getHeadingLevel(
   }
 }
 
+function scaleToMaxWidth(width: number, height: number, maxWidth: number): { width: number; height: number } {
+  if (width <= maxWidth) {
+    return { width, height };
+  }
+  const ratio = maxWidth / width;
+  return {
+    width: Math.round(width * ratio),
+    height: Math.round(height * ratio),
+  };
+}
+
 // Convert Markdown to DOCX
 export async function markdownToDocx(
   content: string,
@@ -823,6 +1012,46 @@ export async function markdownToDocx(
         break;
 
       case 'code':
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: block.content || '',
+                font: 'Consolas',
+                size: 20, // 10pt
+              }),
+            ],
+            shading: { fill: 'f5f5f5' },
+          })
+        );
+        break;
+
+      case 'diagram':
+        if (block.content && block.diagramType) {
+          try {
+            const image = await renderDiagramToPngBuffer(block.diagramType, block.content);
+            if (image) {
+              const scaled = scaleToMaxWidth(image.width, image.height, 600);
+              children.push(
+                new Paragraph({
+                  children: [
+                    new ImageRun({
+                      data: image.data,
+                      transformation: {
+                        width: scaled.width,
+                        height: scaled.height,
+                      },
+                    }),
+                  ],
+                  alignment: AlignmentType.CENTER,
+                })
+              );
+              break;
+            }
+          } catch {
+            // Fall back to plain text below.
+          }
+        }
         children.push(
           new Paragraph({
             children: [

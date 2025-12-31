@@ -545,10 +545,8 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     let searchTimeout = null;
 
     function clearSearchHighlights() {
-      document.querySelectorAll('.search-highlight').forEach(el => {
-        const parent = el.parentNode;
-        parent.replaceChild(document.createTextNode(el.textContent), el);
-        parent.normalize();
+      document.querySelectorAll('.textLayer span.search-highlight').forEach(el => {
+        el.classList.remove('search-highlight', 'current');
       });
     }
 
@@ -568,36 +566,13 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
       textLayers.forEach((textLayer, pageIndex) => {
         const spans = textLayer.querySelectorAll('span');
         spans.forEach(span => {
-          const text = span.textContent;
-          const lowerText = text.toLowerCase();
-          let index = lowerText.indexOf(lowerQuery);
-
-          if (index !== -1) {
-            // Create highlighted version
-            const parts = [];
-            let lastIndex = 0;
-
-            while (index !== -1) {
-              if (index > lastIndex) {
-                parts.push(document.createTextNode(text.substring(lastIndex, index)));
-              }
-              
-              const highlight = document.createElement('mark');
-              highlight.className = 'search-highlight';
-              highlight.textContent = text.substring(index, index + query.length);
-              parts.push(highlight);
-              searchResults.push({ element: highlight, pageNum: pageIndex + 1 });
-              
-              lastIndex = index + query.length;
-              index = lowerText.indexOf(lowerQuery, lastIndex);
-            }
-
-            if (lastIndex < text.length) {
-              parts.push(document.createTextNode(text.substring(lastIndex)));
-            }
-
-            span.textContent = '';
-            parts.forEach(part => span.appendChild(part));
+          const text = span.textContent || '';
+          if (!text) {
+            return;
+          }
+          if (text.toLowerCase().includes(lowerQuery)) {
+            span.classList.add('search-highlight');
+            searchResults.push({ element: span, pageNum: pageIndex + 1 });
           }
         });
       });
