@@ -203,43 +203,11 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     .page-container {
       position: relative;
     }
-    
-    .textLayer {
-      position: absolute;
-      left: 0;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      overflow: hidden;
-      opacity: 1;
-      line-height: 1.0;
-      -webkit-text-size-adjust: none;
-      -moz-text-size-adjust: none;
-      text-size-adjust: none;
-      forced-color-adjust: none;
+
+    .page-container .textLayer {
       z-index: 2;
     }
-    
-    .textLayer span,
-    .textLayer br {
-      color: transparent;
-      position: absolute;
-      white-space: pre;
-      cursor: text;
-      transform-origin: 0% 0%;
-    }
-    
-    .textLayer ::selection {
-      background: rgba(0, 0, 255, 0.3);
-    }
-    
-    .textLayer .highlight {
-      margin: -1px;
-      padding: 1px;
-      background-color: rgba(180, 0, 170, 0.25);
-      border-radius: 4px;
-    }
-    
+
     .textLayer .search-highlight {
       background-color: rgba(255, 255, 0, 0.4);
       border-radius: 2px;
@@ -269,7 +237,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     </div>
   </div>
   
-  <div class="container" id="container">
+  <div class="container pdfViewer" id="container">
     <div class="loading" id="loading">Loading PDF...</div>
   </div>
   
@@ -395,7 +363,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
 
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const pageContainer = document.createElement('div');
-        pageContainer.className = 'page-container';
+        pageContainer.className = 'page page-container';
         pageContainer.id = 'page-' + i;
         pageContainer.dataset.pageNum = String(i);
         if (estimatedPageWidth && estimatedPageHeight) {
@@ -425,6 +393,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
         const viewport = firstPage.getViewport({ scale });
         estimatedPageWidth = viewport.width;
         estimatedPageHeight = viewport.height;
+        container.style.setProperty('--scale-factor', viewport.scale);
       } catch {
         // Keep previous estimates
       }
@@ -551,6 +520,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
         const scaledViewport = page.getViewport({ scale });
         estimatedPageWidth = scaledViewport.width;
         estimatedPageHeight = scaledViewport.height;
+        container.style.setProperty('--scale-factor', scaledViewport.scale);
 
         setupPagePlaceholders();
         initIntersectionObserver();
