@@ -36,12 +36,20 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     const pdfWorkerUri = webviewPanel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'out', 'pdfjs', 'pdf.worker.min.js')
     );
+    const pdfViewerUri = webviewPanel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'pdfjs', 'pdf_viewer.min.js')
+    );
+    const pdfViewerCssUri = webviewPanel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'pdfjs', 'pdf_viewer.css')
+    );
 
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       pdfUri.toString(),
       pdfJsUri.toString(),
       pdfWorkerUri.toString(),
+      pdfViewerUri.toString(),
+      pdfViewerCssUri.toString(),
       document.uri.fsPath
     );
   }
@@ -51,6 +59,8 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     pdfUri: string,
     pdfJsUri: string,
     pdfWorkerUri: string,
+    pdfViewerUri: string,
+    pdfViewerCssUri: string,
     filePath: string
   ): string {
     const fileName = path.basename(filePath);
@@ -62,6 +72,8 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${fileName}</title>
   <script src="${pdfJsUri}"></script>
+  <script src="${pdfViewerUri}"></script>
+  <link rel="stylesheet" href="${pdfViewerCssUri}">
   <style>
     * {
       margin: 0;
@@ -334,26 +346,15 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
           existingTextLayer.remove();
         }
 
-        // Create text layer for text selection
-        const textLayerDiv = document.createElement('div');
-        textLayerDiv.className = 'textLayer';
-        textLayerDiv.style.width = viewport.width + 'px';
-        textLayerDiv.style.height = viewport.height + 'px';
-        pageEl.appendChild(textLayerDiv);
-
-        // Get text content and render text layer using PDF.js helper
-        const textContent = await page.getTextContent();
-        
-        if (pageToken !== renderToken) {
-          return;
+        // Render text layer for selection/copy
+        const viewer = window.pdfjsViewer;
+        if (viewer && viewer.TextLayerBuilder) {
+          const textLayerBuilder = new viewer.TextLayerBuilder({
+            pdfPage: page,
+            onAppend: (layerDiv) => pageEl.appendChild(layerDiv),
+          });
+          await textLayerBuilder.render({ viewport });
         }
-
-        await pdfjsLib.renderTextLayer({
-          textContent,
-          container: textLayerDiv,
-          viewport,
-          textDivs: [],
-        }).promise;
 
         canvas.dataset.renderedScale = String(scale);
       } catch (err) {
