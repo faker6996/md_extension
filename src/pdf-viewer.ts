@@ -620,7 +620,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
         searchPrevBtn.disabled = true;
         searchNextBtn.disabled = true;
       } else {
-        searchInfo.textContent = `${'${'}current} / ${'${'}total}`;
+        searchInfo.textContent = current + ' / ' + total;
         searchPrevBtn.disabled = false;
         searchNextBtn.disabled = false;
       }
