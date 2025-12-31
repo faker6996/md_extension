@@ -206,6 +206,20 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
 
     .page-container .textLayer {
       z-index: 2;
+      pointer-events: auto;
+    }
+
+    .page-container .canvasWrapper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .page-container canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 1;
     }
 
   </style>
@@ -390,12 +404,15 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
           pageContainer.style.height = estimatedPageHeight + 'px';
         }
 
+        const canvasWrapper = document.createElement('div');
+        canvasWrapper.className = 'canvasWrapper';
         const canvas = document.createElement('canvas');
         if (estimatedPageWidth && estimatedPageHeight) {
           canvas.width = Math.floor(estimatedPageWidth);
           canvas.height = Math.floor(estimatedPageHeight);
         }
-        pageContainer.appendChild(canvas);
+        canvasWrapper.appendChild(canvas);
+        pageContainer.appendChild(canvasWrapper);
         container.appendChild(pageContainer);
       }
     }
