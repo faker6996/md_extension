@@ -179,6 +179,10 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     .page-container {
       background-color: white;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      --user-unit: 1;
+      --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+      --scale-round-x: 1px;
+      --scale-round-y: 1px;
     }
     
     canvas {
@@ -208,17 +212,9 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
       z-index: 2;
       pointer-events: auto;
     }
-
-    .page-container .canvasWrapper {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-
+    
     .page-container canvas {
-      position: absolute;
-      left: 0;
-      top: 0;
+      position: relative;
       z-index: 1;
     }
 
@@ -243,7 +239,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
     </div>
   </div>
   
-  <div class="container pdfViewer" id="container">
+  <div class="container" id="container">
     <div class="loading" id="loading">Loading PDF...</div>
   </div>
   
@@ -396,7 +392,7 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
 
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const pageContainer = document.createElement('div');
-        pageContainer.className = 'page page-container';
+        pageContainer.className = 'page-container';
         pageContainer.id = 'page-' + i;
         pageContainer.dataset.pageNum = String(i);
         if (estimatedPageWidth && estimatedPageHeight) {
@@ -404,15 +400,12 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider {
           pageContainer.style.height = estimatedPageHeight + 'px';
         }
 
-        const canvasWrapper = document.createElement('div');
-        canvasWrapper.className = 'canvasWrapper';
         const canvas = document.createElement('canvas');
         if (estimatedPageWidth && estimatedPageHeight) {
           canvas.width = Math.floor(estimatedPageWidth);
           canvas.height = Math.floor(estimatedPageHeight);
         }
-        canvasWrapper.appendChild(canvas);
-        pageContainer.appendChild(canvasWrapper);
+        pageContainer.appendChild(canvas);
         container.appendChild(pageContainer);
       }
     }
