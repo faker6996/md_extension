@@ -85,6 +85,10 @@ Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
 | `mdxExporter.quickExportOverwrite` | boolean | `false` | Quick export overwrites without prompting   |
 | `mdxExporter.pdfPageFormat`        | string  | `A4`    | PDF page format (A4, Letter, Legal, A3, A5) |
 | `mdxExporter.pdfMargin`            | string  | `20mm`  | PDF page margin                             |
+| `mdxExporter.autoWidePageForCodeBlocks` | boolean | `true`  | Auto switch to wide PDF page when code lines are long |
+| `mdxExporter.wideLineThreshold`    | number  | `140`   | Line length that triggers wide page for code blocks |
+| `mdxExporter.widePageFormat`       | string  | `A3`    | Page format when wide mode is triggered     |
+| `mdxExporter.widePageMargin`       | string  | `10mm`  | Page margin when wide mode is triggered     |
 | `mdxExporter.displayHeaderFooter`  | boolean | `false` | Show header/footer in PDF                   |
 | `mdxExporter.headerTemplate`       | string  | (empty) | PDF header template                         |
 | `mdxExporter.footerTemplate`       | string  | ...     | PDF footer template                         |

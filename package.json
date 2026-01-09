@@ -242,6 +242,34 @@
           "default": "20mm",
           "description": "Page margin for PDF export (e.g., '20mm', '1in')."
         },
+        "mdxExporter.autoWidePageForCodeBlocks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically switch to a wider PDF page when long code block lines are detected."
+        },
+        "mdxExporter.wideLineThreshold": {
+          "type": "number",
+          "default": 140,
+          "minimum": 40,
+          "description": "Line length threshold used to trigger wide PDF pages for code blocks."
+        },
+        "mdxExporter.widePageFormat": {
+          "type": "string",
+          "default": "A3",
+          "enum": [
+            "A4",
+            "Letter",
+            "Legal",
+            "A3",
+            "A5"
+          ],
+          "description": "PDF page format to use when wide code blocks are detected."
+        },
+        "mdxExporter.widePageMargin": {
+          "type": "string",
+          "default": "10mm",
+          "description": "Page margin for wide PDF export."
+        },
         "mdxExporter.displayHeaderFooter": {
           "type": "boolean",
           "default": false,

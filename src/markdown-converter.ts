@@ -42,6 +42,7 @@ export interface PdfOptions {
   headerTemplate?: string;
   footerTemplate?: string;
   customStyles?: string[];
+  landscape?: boolean;
 }
 
 export interface ImageOptions {
@@ -159,7 +160,8 @@ export function markdownToHtml(
   content: string,
   baseDir: string,
   customStyles?: string[],
-  isPreview: boolean = false
+  isPreview: boolean = false,
+  htmlOptions?: { wrapCodeBlocks?: boolean }
 ): string {
   // Process mermaid code blocks
   let processedContent = content.replace(
@@ -261,6 +263,16 @@ export function markdownToHtml(
     mermaidInit = `<script>mermaid.initialize({startOnLoad:true, theme: 'default'});</script>`;
   }
 
+  const wrapCodeBlocks = isPreview
+    ? htmlOptions?.wrapCodeBlocks ?? false
+    : htmlOptions?.wrapCodeBlocks ?? true;
+
+  const preExtraStyle = isPreview
+    ? 'overflow-x: auto;'
+    : wrapCodeBlocks
+      ? 'white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;'
+      : 'white-space: pre; overflow-wrap: normal; word-break: normal;';
+
   // Create full HTML document with styling
   const fullHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -300,7 +312,7 @@ export function markdownToHtml(
       background-color: var(--vscode-textCodeBlock-background);
       padding: 1em;
       border-radius: 5px;
-      overflow-x: auto;
+      ${preExtraStyle}
     }
     pre code {
       background: none;
@@ -457,6 +469,7 @@ export async function htmlToPdf(
     await page.pdf({
       path: outputPath,
       format: options.format,
+      landscape: options.landscape ?? false,
       margin: {
         top: options.displayHeaderFooter ? '25mm' : options.margin,
         right: options.margin,

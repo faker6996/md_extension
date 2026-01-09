@@ -26,6 +26,10 @@ interface MdxExporterConfig {
   quickExportOverwrite: boolean;
   pdfPageFormat: PaperFormat;
   pdfMargin: string;
+  autoWidePageForCodeBlocks: boolean;
+  wideLineThreshold: number;
+  widePageFormat: PaperFormat;
+  widePageMargin: string;
   displayHeaderFooter: boolean;
   headerTemplate: string;
   footerTemplate: string;
@@ -75,6 +79,10 @@ function getConfig(): MdxExporterConfig {
     quickExportOverwrite: config.get<boolean>('quickExportOverwrite', false),
     pdfPageFormat: config.get<PaperFormat>('pdfPageFormat', 'A4'),
     pdfMargin: config.get<string>('pdfMargin', '20mm'),
+    autoWidePageForCodeBlocks: config.get<boolean>('autoWidePageForCodeBlocks', true),
+    wideLineThreshold: config.get<number>('wideLineThreshold', 140),
+    widePageFormat: config.get<PaperFormat>('widePageFormat', 'A3'),
+    widePageMargin: config.get<string>('widePageMargin', '10mm'),
     displayHeaderFooter: config.get<boolean>('displayHeaderFooter', false),
     headerTemplate: config.get<string>('headerTemplate', ''),
     footerTemplate: config.get<string>(
@@ -263,6 +271,37 @@ async function showSaveDialog(
   });
 }
 
+function hasWideCodeBlock(content: string, threshold: number): boolean {
+  if (threshold <= 0) {
+    return false;
+  }
+
+  const lines = content.split(/\r?\n/);
+  let fence: string | null = null;
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^(```+|~~~+)\s*/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      if (!fence) {
+        fence = marker;
+      } else if (line.startsWith(fence)) {
+        fence = null;
+      }
+      continue;
+    }
+
+    if (fence) {
+      const normalized = line.replace(/\t/g, '    ');
+      if (normalized.length > threshold) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 // Show success message with action buttons
 async function showSuccessMessage(outputPath: string, config: MdxExporterConfig): Promise<void> {
   const buttons: string[] = [];
@@ -304,15 +343,25 @@ async function runExport(
   const baseDir = path.dirname(inputPath);
 
   if (format === 'pdf') {
-    const html = markdownToHtml(content, baseDir, config.styles);
+    const useWidePage =
+      config.autoWidePageForCodeBlocks && hasWideCodeBlock(content, config.wideLineThreshold);
+    if (useWidePage) {
+      logLine(
+        `[pdf] wide page enabled (format: ${config.widePageFormat}, margin: ${config.widePageMargin})`
+      );
+    }
+    const html = markdownToHtml(content, baseDir, config.styles, false, {
+      wrapCodeBlocks: !useWidePage,
+    });
     const pdfOptions: PdfOptions = {
-      format: config.pdfPageFormat,
-      margin: config.pdfMargin,
+      format: useWidePage ? config.widePageFormat : config.pdfPageFormat,
+      margin: useWidePage ? config.widePageMargin : config.pdfMargin,
       baseDir,
       displayHeaderFooter: config.displayHeaderFooter,
       headerTemplate: config.headerTemplate,
       footerTemplate: config.footerTemplate,
       customStyles: config.styles,
+      landscape: useWidePage,
     };
     logLine(`[pdf] Converting with options: ${JSON.stringify(pdfOptions)}`);
     await htmlToPdf(html, outputPath, pdfOptions);
