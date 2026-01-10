@@ -271,6 +271,16 @@ async function showSaveDialog(
   });
 }
 
+function estimateLineWidth(value: string): number {
+  const normalized = value.replace(/\t/g, '    ');
+  let width = 0;
+  for (const ch of normalized) {
+    const codePoint = ch.codePointAt(0) ?? 0;
+    width += codePoint > 0xff ? 2 : 1;
+  }
+  return width;
+}
+
 function hasWideCodeBlock(content: string, threshold: number): boolean {
   if (threshold <= 0) {
     return false;
@@ -291,11 +301,8 @@ function hasWideCodeBlock(content: string, threshold: number): boolean {
       continue;
     }
 
-    if (fence) {
-      const normalized = line.replace(/\t/g, '    ');
-      if (normalized.length > threshold) {
-        return true;
-      }
+    if (fence && estimateLineWidth(line) > threshold) {
+      return true;
     }
   }
 
