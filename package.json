@@ -293,6 +293,16 @@
           },
           "description": "List of custom CSS file paths to apply to exports."
         },
+        "mdxExporter.allowRawHtmlInPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow raw HTML blocks inside the custom preview. Disable for safer preview rendering."
+        },
+        "mdxExporter.allowUnsafeEvalInPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow unsafe-eval in preview webview CSP for compatibility with strict Mermaid setups."
+        },
         "mdxExporter.jpegQuality": {
           "type": "number",
           "default": 90,
@@ -311,6 +321,7 @@
     "watch": "npm run copy:pdfjs && npm run esbuild-base -- --sourcemap --watch",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
+    "test": "tsx --test src/**/*.test.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -337,6 +348,7 @@
     "esbuild": "^0.20.0",
     "eslint": "^8.55.0",
     "prettier": "^3.1.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.3.2"
   }
 }

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.21] - 2026-02-14
+
+### Added
+
+- `allowRawHtmlInPreview` setting to disable raw HTML rendering in preview by default
+- `allowUnsafeEvalInPreview` setting to opt into `unsafe-eval` for preview CSP compatibility
+- Automated tests for markdown table parsing, inline link parsing, and image dimension detection
+
+### Changed
+
+- Markdown preview now scopes webview local resource roots to extension/workspace/document/style paths
+- Markdown preview now uses nonce-based CSP for generated inline scripts/styles
+- DOCX export reuses a shared browser instance for diagram rendering to improve performance
+- DOCX image export now keeps aspect ratio for PNG/JPEG sources when dimensions are available
+- DOCX inline links now export as clickable hyperlinks
+
+### Fixed
+
+- Prevented potential infinite wait while rendering Mermaid in PDF/PNG/JPEG export
+- Hardened auto-publish workflow to avoid force push/tag operations
+
 ## [0.3.5] - 2024-12-24
 
 ### Changed

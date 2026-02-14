@@ -53,11 +53,12 @@ jobs:
           # Commit thay đổi
           git commit -am "Bump version to $NEW_VERSION [skip ci]"
 
-          # Tạo tag (force để ghi đè nếu đã tồn tại do lần chạy trước bị lỗi)
-          git tag -f "$TAG"
+          # Tạo tag mới cho version vừa bump
+          git tag "$TAG"
 
-          # Đẩy code và tag lên (force để ghi đè remote tag)
-          git push -f origin master --tags
+          # Đẩy commit và tag, tránh force-push để giảm rủi ro ghi đè lịch sử
+          git push origin master
+          git push origin "$TAG"
 
       - name: Publish to VS Code Marketplace
         uses: HaaLeo/publish-vscode-extension@v1

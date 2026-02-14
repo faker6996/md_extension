@@ -493,7 +493,7 @@ async function exportMarkdown(
 let extensionContext: vscode.ExtensionContext | undefined;
 
 // Command: Open Preview to Side (with Mermaid support)
-async function openPreviewToSide(): Promise<void> {
+function openPreviewToSide(): void {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !isMarkdownFile(editor.document.uri)) {
     void vscode.window.showErrorMessage('Please open a Markdown file to preview.');
@@ -625,9 +625,12 @@ async function convertDocxToMd(resourceUri?: vscode.Uri): Promise<void> {
   // Show save dialog
   const outputUri = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.file(defaultOutputPath),
-    filters: {
-      Markdown: ['md'],
-    },
+    filters: (() => {
+      const markdownFilterLabel = 'Markdown';
+      return {
+        [markdownFilterLabel]: ['md'],
+      };
+    })(),
     title: 'Save as Markdown',
   });
 
@@ -748,10 +751,10 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // Log activation
-  console.log('MDX Exporter Lite is now active!');
+  logLine('MDX Exporter Lite is now active.');
 }
 
 // Extension deactivation
 export function deactivate(): void {
-  console.log('MDX Exporter Lite is now deactivated.');
+  logLine('MDX Exporter Lite is now deactivated.');
 }

@@ -1,13 +1,15 @@
-import MarkdownIt from 'markdown-it';
+import markdownIt from 'markdown-it';
 import { full as emoji } from 'markdown-it-emoji';
 import texmath from 'markdown-it-texmath';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import puppeteer, { Browser, Page, PaperFormat } from 'puppeteer-core';
 import {
   Document,
   Packer,
   Paragraph,
+  ParagraphChild,
   TextRun,
   HeadingLevel,
   ImageRun,
@@ -20,18 +22,29 @@ import {
   ExternalHyperlink,
 } from 'docx';
 
-// Initialize markdown-it with emoji and math plugins
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-  breaks: true,
-})
-  .use(emoji)
-  .use(texmath, {
-    engine: { renderToString: (tex: string) => `<span class="katex-inline">${tex}</span>` },
-    delimiters: 'dollars',
-  });
+function createMarkdownParser(allowRawHtml: boolean): markdownIt {
+  return new markdownIt({
+    html: allowRawHtml,
+    linkify: true,
+    typographer: true,
+    breaks: true,
+  })
+    .use(emoji)
+    .use(texmath, {
+      engine: { renderToString: (tex: string) => `<span class="katex-inline">${tex}</span>` },
+      delimiters: 'dollars',
+    });
+}
+
+const markdownParserWithHtml = createMarkdownParser(true);
+const markdownParserWithoutHtml = createMarkdownParser(false);
+
+export interface MarkdownHtmlOptions {
+  wrapCodeBlocks?: boolean;
+  allowRawHtml?: boolean;
+  scriptNonce?: string;
+  styleNonce?: string;
+}
 
 // Types
 export interface PdfOptions {
@@ -100,8 +113,7 @@ export function findChromePath(): string | null {
 function encodePlantUml(uml: string): string {
   // Simple encoding: compress and base64 encode for PlantUML server
   // PlantUML uses a special encoding: deflate + custom base64
-  const deflate = require('zlib').deflateSync;
-  const compressed = deflate(Buffer.from(uml, 'utf-8'), { level: 9 });
+  const compressed = zlib.deflateSync(Buffer.from(uml, 'utf-8'), { level: 9 });
 
   // PlantUML uses a modified base64 alphabet
   const encode64 = (num: number): string => {
@@ -133,9 +145,14 @@ function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function getMermaidScriptTag(): string {
+function getNonceAttr(nonce?: string): string {
+  return nonce ? ` nonce="${nonce}"` : '';
+}
+
+function getMermaidScriptTag(scriptNonce?: string): string {
+  const nonceAttr = getNonceAttr(scriptNonce);
   let mermaidScriptTag =
-    '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>';
+    `<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"${nonceAttr}></script>`;
   try {
     const mermaidPath = path.join(
       __dirname,
@@ -147,12 +164,33 @@ function getMermaidScriptTag(): string {
     );
     if (fs.existsSync(mermaidPath)) {
       const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
-      mermaidScriptTag = `<script>${mermaidScript}</script>`;
+      mermaidScriptTag = `<script${nonceAttr}>${mermaidScript}</script>`;
     }
   } catch {
     // Fall back to CDN if local bundle can't be loaded.
   }
   return mermaidScriptTag;
+}
+
+async function waitForMermaidRender(page: Page, timeoutMs: number = 10000): Promise<void> {
+  try {
+    await page.waitForFunction(
+      () => {
+        const mermaidBlocks = document.querySelectorAll('pre.mermaid, .mermaid');
+        if (!mermaidBlocks.length) {
+          return true;
+        }
+        const renderedSvgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
+        return renderedSvgs.length >= mermaidBlocks.length;
+      },
+      {
+        timeout: timeoutMs,
+        polling: 100,
+      }
+    );
+  } catch {
+    // Continue export even if mermaid rendering is partial to avoid hanging forever.
+  }
 }
 
 // Convert Markdown to HTML with styling
@@ -161,7 +199,7 @@ export function markdownToHtml(
   baseDir: string,
   customStyles?: string[],
   isPreview: boolean = false,
-  htmlOptions?: { wrapCodeBlocks?: boolean }
+  htmlOptions?: MarkdownHtmlOptions
 ): string {
   // Process mermaid code blocks
   let processedContent = content.replace(
@@ -179,10 +217,14 @@ export function markdownToHtml(
     }
   );
 
-  const htmlContent = md.render(processedContent);
+  const allowRawHtml = htmlOptions?.allowRawHtml ?? true;
+  const scriptNonceAttr = getNonceAttr(htmlOptions?.scriptNonce);
+  const styleNonceAttr = getNonceAttr(htmlOptions?.styleNonce);
+  const parser = allowRawHtml ? markdownParserWithHtml : markdownParserWithoutHtml;
+  const htmlContent = parser.render(processedContent);
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
-  const mermaidScriptTag = getMermaidScriptTag();
+  const mermaidScriptTag = getMermaidScriptTag(htmlOptions?.scriptNonce);
 
   // Load custom CSS files
   let customCss = '';
@@ -230,7 +272,7 @@ export function markdownToHtml(
   if (isPreview) {
     // Dynamic theme detection for preview
     mermaidInit = `
-    <script>
+    <script${scriptNonceAttr}>
       const initMermaid = () => {
         const isDark = document.body.classList.contains('vscode-dark');
         mermaid.initialize({
@@ -260,7 +302,7 @@ export function markdownToHtml(
       observer.observe(document.body, { attributes: true });
     </script>`;
   } else {
-    mermaidInit = `<script>mermaid.initialize({startOnLoad:true, theme: 'default'});</script>`;
+    mermaidInit = `<script${scriptNonceAttr}>mermaid.initialize({startOnLoad:true, theme: 'default'});</script>`;
   }
 
   const wrapCodeBlocks = isPreview
@@ -280,7 +322,7 @@ export function markdownToHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <base href="file://${baseDir}/">
-  <style>
+  <style${styleNonceAttr}>
     ${cssVariables}
     body {
       font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
@@ -373,9 +415,20 @@ export function markdownToHtml(
   </style>
   <!-- KaTeX for Math -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" 
-    onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"${scriptNonceAttr}></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"${scriptNonceAttr}></script>
+  <script${scriptNonceAttr}>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (typeof renderMathInElement === 'function') {
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false }
+          ]
+        });
+      }
+    });
+  </script>
   <!-- Mermaid -->
   ${mermaidScriptTag}
   ${mermaidInit}
@@ -418,33 +471,8 @@ export async function htmlToPdf(
       waitUntil: 'networkidle0',
     });
 
-    // Wait for Mermaid diagrams to render
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        // Check if there are any mermaid elements
-        const mermaidElements = document.querySelectorAll('pre.mermaid');
-        if (mermaidElements.length === 0) {
-          resolve();
-          return;
-        }
-
-        // Wait for mermaid to finish rendering (check for SVG elements)
-        const checkMermaid = () => {
-          const svgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
-          if (svgs.length >= mermaidElements.length) {
-            resolve();
-          } else {
-            setTimeout(checkMermaid, 100);
-          }
-        };
-
-        // Start checking after a short delay to allow mermaid.js to initialize
-        setTimeout(checkMermaid, 500);
-      });
-    });
-
-    // Additional wait for any remaining async rendering
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await waitForMermaidRender(page);
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Process header/footer templates
     let headerTemplate = options.headerTemplate || '';
@@ -521,26 +549,8 @@ export async function htmlToImage(
       waitUntil: 'networkidle0',
     });
 
-    // Wait for Mermaid diagrams to render
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        const mermaidElements = document.querySelectorAll('pre.mermaid');
-        if (mermaidElements.length === 0) {
-          resolve();
-          return;
-        }
-        const checkMermaid = () => {
-          const svgs = document.querySelectorAll('pre.mermaid svg, .mermaid svg');
-          if (svgs.length >= mermaidElements.length) {
-            resolve();
-          } else {
-            setTimeout(checkMermaid, 100);
-          }
-        };
-        setTimeout(checkMermaid, 500);
-      });
-    });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await waitForMermaidRender(page);
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Generate screenshot
     await page.screenshot({
@@ -564,17 +574,11 @@ interface DiagramImage {
 
 async function renderDiagramToPngBuffer(
   diagramType: 'mermaid' | 'plantuml',
-  code: string
+  code: string,
+  sharedBrowser?: Browser
 ): Promise<DiagramImage | null> {
-  const chromePath = findChromePath();
-
-  if (!chromePath) {
-    throw new Error(
-      'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge.'
-    );
-  }
-
-  let browser: Browser | null = null;
+  const ownsBrowser = !sharedBrowser;
+  let browser: Browser | null = sharedBrowser ?? null;
 
   const buildHtml = (): { html: string; selector: string } => {
     if (diagramType === 'mermaid') {
@@ -626,7 +630,7 @@ async function renderDiagramToPngBuffer(
     if (diagramType === 'plantuml') {
       await page.waitForFunction(
         () => {
-          const img = document.querySelector('#diagram') as HTMLImageElement | null;
+          const img = document.querySelector<HTMLImageElement>('#diagram');
           return Boolean(img && img.complete && img.naturalWidth > 0);
         },
         { timeout: 10000 }
@@ -635,11 +639,23 @@ async function renderDiagramToPngBuffer(
   };
 
   try {
-    browser = await puppeteer.launch({
-      executablePath: chromePath,
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
-    });
+    if (ownsBrowser) {
+      const chromePath = findChromePath();
+      if (!chromePath) {
+        throw new Error(
+          'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge.'
+        );
+      }
+      browser = await puppeteer.launch({
+        executablePath: chromePath,
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
+      });
+    }
+
+    if (!browser) {
+      return null;
+    }
 
     const page = await browser.newPage();
     const padding = 8;
@@ -671,7 +687,7 @@ async function renderDiagramToPngBuffer(
     const clipWidth = Math.max(1, box.width + padding * 2);
     const clipHeight = Math.max(1, box.height + padding * 2);
 
-    const buffer = (await page.screenshot({
+    const screenshot = await page.screenshot({
       type: 'png',
       clip: {
         x: clipX,
@@ -679,7 +695,8 @@ async function renderDiagramToPngBuffer(
         width: clipWidth,
         height: clipHeight,
       },
-    })) as Buffer;
+    });
+    const buffer = Buffer.isBuffer(screenshot) ? screenshot : Buffer.from(screenshot);
 
     return {
       data: buffer,
@@ -687,14 +704,14 @@ async function renderDiagramToPngBuffer(
       height: Math.round(clipHeight),
     };
   } finally {
-    if (browser) {
+    if (ownsBrowser && browser) {
       await browser.close();
     }
   }
 }
 
 // Parse markdown content into structured blocks for DOCX
-interface MarkdownBlock {
+export interface MarkdownBlock {
   type:
     | 'heading'
     | 'paragraph'
@@ -714,6 +731,17 @@ interface MarkdownBlock {
   rows?: string[][];
   src?: string;
   alt?: string;
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  let normalized = line.trim();
+  if (normalized.startsWith('|')) {
+    normalized = normalized.slice(1);
+  }
+  if (normalized.endsWith('|')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized.split('|').map((cell) => cell.trim());
 }
 
 function parseMarkdownBlocks(content: string): MarkdownBlock[] {
@@ -820,14 +848,21 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     }
 
     // Table
-    if (line.includes('|') && i + 1 < lines.length && lines[i + 1].includes('|')) {
+    const tableSeparatorPattern = /^\s*\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)*\s*\|?\s*$/;
+    if (
+      line.includes('|') &&
+      i + 1 < lines.length &&
+      tableSeparatorPattern.test(lines[i + 1].trim())
+    ) {
       const tableRows: string[][] = [];
+      const headerRow = parseMarkdownTableRow(line);
+      if (headerRow.length) {
+        tableRows.push(headerRow);
+      }
+      i += 2;
       while (i < lines.length && lines[i].includes('|')) {
-        const row = lines[i]
-          .split('|')
-          .map((cell) => cell.trim())
-          .filter((cell) => cell !== '');
-        if (row.length > 0 && !/^[-:]+$/.test(row.join(''))) {
+        const row = parseMarkdownTableRow(lines[i]);
+        if (row.length > 0) {
           tableRows.push(row);
         }
         i++;
@@ -888,13 +923,18 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   return blocks;
 }
 
-// Process inline markdown (bold, italic, code, links)
-function processInlineMarkdown(text: string): TextRun[] {
+export interface InlineMarkdownSegment {
+  type: 'text' | 'bold' | 'italic' | 'code' | 'link';
+  text: string;
+  href?: string;
+}
+
+function parseInlineMarkdownSegments(text: string): InlineMarkdownSegment[] {
   if (!text || text.length === 0) {
-    return [new TextRun({ text: '' })];
+    return [{ type: 'text', text: '' }];
   }
 
-  const runs: TextRun[] = [];
+  const segments: InlineMarkdownSegment[] = [];
 
   // Use a regex to split text by markdown patterns
   // Match: **bold**, *italic*, `code`, [link](url)
@@ -906,49 +946,28 @@ function processInlineMarkdown(text: string): TextRun[] {
   while ((match = pattern.exec(text)) !== null) {
     // Add text before the match
     if (match.index > lastIndex) {
-      runs.push(new TextRun({ text: text.slice(lastIndex, match.index) }));
+      segments.push({ type: 'text', text: text.slice(lastIndex, match.index) });
     }
 
     const matched = match[0];
 
     // Bold: **text**
     if (matched.startsWith('**') && matched.endsWith('**')) {
-      runs.push(
-        new TextRun({
-          text: matched.slice(2, -2),
-          bold: true,
-        })
-      );
+      segments.push({ type: 'bold', text: matched.slice(2, -2) });
     }
     // Italic: *text*
     else if (matched.startsWith('*') && matched.endsWith('*')) {
-      runs.push(
-        new TextRun({
-          text: matched.slice(1, -1),
-          italics: true,
-        })
-      );
+      segments.push({ type: 'italic', text: matched.slice(1, -1) });
     }
     // Code: `text`
     else if (matched.startsWith('`') && matched.endsWith('`')) {
-      runs.push(
-        new TextRun({
-          text: matched.slice(1, -1),
-          font: 'Consolas',
-        })
-      );
+      segments.push({ type: 'code', text: matched.slice(1, -1) });
     }
     // Link: [text](url)
     else if (matched.startsWith('[')) {
-      const linkTextMatch = matched.match(/\[([^\]]+)\]/);
-      if (linkTextMatch) {
-        runs.push(
-          new TextRun({
-            text: linkTextMatch[1],
-            color: '0066cc',
-            underline: {},
-          })
-        );
+      const linkMatch = matched.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (linkMatch) {
+        segments.push({ type: 'link', text: linkMatch[1], href: linkMatch[2] });
       }
     }
 
@@ -957,10 +976,65 @@ function processInlineMarkdown(text: string): TextRun[] {
 
   // Add remaining text after last match
   if (lastIndex < text.length) {
-    runs.push(new TextRun({ text: text.slice(lastIndex) }));
+    segments.push({ type: 'text', text: text.slice(lastIndex) });
   }
 
-  return runs.length > 0 ? runs : [new TextRun({ text })];
+  return segments.length > 0 ? segments : [{ type: 'text', text }];
+}
+
+// Process inline markdown (bold, italic, code, links)
+function processInlineMarkdown(text: string): ParagraphChild[] {
+  const segments = parseInlineMarkdownSegments(text);
+  const runs: ParagraphChild[] = [];
+
+  for (const segment of segments) {
+    switch (segment.type) {
+      case 'bold':
+        runs.push(
+          new TextRun({
+            text: segment.text,
+            bold: true,
+          })
+        );
+        break;
+      case 'italic':
+        runs.push(
+          new TextRun({
+            text: segment.text,
+            italics: true,
+          })
+        );
+        break;
+      case 'code':
+        runs.push(
+          new TextRun({
+            text: segment.text,
+            font: 'Consolas',
+          })
+        );
+        break;
+      case 'link':
+        runs.push(
+          new ExternalHyperlink({
+            link: segment.href ?? '',
+            children: [
+              new TextRun({
+                text: segment.text,
+                color: '0066cc',
+                underline: {},
+              }),
+            ],
+          })
+        );
+        break;
+      case 'text':
+      default:
+        runs.push(new TextRun({ text: segment.text }));
+        break;
+    }
+  }
+
+  return runs.length > 0 ? runs : [new TextRun({ text: '' })];
 }
 
 // Get heading level for DOCX
@@ -996,6 +1070,64 @@ function scaleToMaxWidth(width: number, height: number, maxWidth: number): { wid
   };
 }
 
+function getImageDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 24) {
+    return null;
+  }
+
+  // PNG: IHDR width/height at offset 16
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return {
+      width: buffer.readUInt32BE(16),
+      height: buffer.readUInt32BE(20),
+    };
+  }
+
+  // JPEG: parse SOF markers for dimensions
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset++;
+        continue;
+      }
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+      const isSofMarker =
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc;
+
+      if (isSofMarker && offset + 8 < buffer.length) {
+        return {
+          height: buffer.readUInt16BE(offset + 5),
+          width: buffer.readUInt16BE(offset + 7),
+        };
+      }
+
+      if (length < 2) {
+        break;
+      }
+      offset += 2 + length;
+    }
+  }
+
+  return null;
+}
+
+export const markdownConverterTestUtils = {
+  parseMarkdownBlocks,
+  parseInlineMarkdownSegments,
+  getImageDimensions,
+};
+
 function encodeDiagramMarker(type: 'mermaid' | 'plantuml', code: string): string {
   const payload = Buffer.from(
     JSON.stringify({
@@ -1015,25 +1147,45 @@ export async function markdownToDocx(
 ): Promise<void> {
   const blocks = parseMarkdownBlocks(content);
   const children: (Paragraph | Table)[] = [];
+  const hasDiagrams = blocks.some(
+    (block) => block.type === 'diagram' && Boolean(block.content && block.diagramType)
+  );
 
-  for (const block of blocks) {
-    switch (block.type) {
-      case 'heading':
-        children.push(
-          new Paragraph({
-            children: processInlineMarkdown(block.content || ''),
-            heading: getHeadingLevel(block.level || 1),
-          })
-        );
-        break;
+  let diagramBrowser: Browser | null = null;
+  let canRenderDiagrams = hasDiagrams;
 
-      case 'paragraph':
-        children.push(
-          new Paragraph({
-            children: processInlineMarkdown(block.content || ''),
-          })
-        );
-        break;
+  if (hasDiagrams) {
+    const chromePath = findChromePath();
+    if (chromePath) {
+      diagramBrowser = await puppeteer.launch({
+        executablePath: chromePath,
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
+      });
+    } else {
+      canRenderDiagrams = false;
+    }
+  }
+
+  try {
+    for (const block of blocks) {
+      switch (block.type) {
+        case 'heading':
+          children.push(
+            new Paragraph({
+              children: processInlineMarkdown(block.content || ''),
+              heading: getHeadingLevel(block.level || 1),
+            })
+          );
+          break;
+
+        case 'paragraph':
+          children.push(
+            new Paragraph({
+              children: processInlineMarkdown(block.content || ''),
+            })
+          );
+          break;
 
       case 'code':
         children.push(
@@ -1050,63 +1202,67 @@ export async function markdownToDocx(
         );
         break;
 
-      case 'diagram':
-        if (block.content && block.diagramType) {
-          try {
-            const image = await renderDiagramToPngBuffer(block.diagramType, block.content);
-            if (image) {
-              const marker = encodeDiagramMarker(block.diagramType, block.content);
-              const scaled = scaleToMaxWidth(image.width, image.height, 600);
-              children.push(
-                new Paragraph({
-                  children: [
-                    new ImageRun({
-                      data: image.data,
-                      transformation: {
-                        width: scaled.width,
-                        height: scaled.height,
-                      },
-                      altText: {
-                        name: 'MDX Diagram',
-                        title: 'MDX Diagram',
-                        description: marker,
-                      },
-                    }),
-                  ],
-                  alignment: AlignmentType.CENTER,
-                })
+        case 'diagram':
+          if (canRenderDiagrams && block.content && block.diagramType) {
+            try {
+              const image = await renderDiagramToPngBuffer(
+                block.diagramType,
+                block.content,
+                diagramBrowser ?? undefined
               );
-              children.push(
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: marker,
-                      vanish: true,
-                      size: 2,
-                      color: 'FFFFFF',
-                    }),
-                  ],
-                })
-              );
-              break;
+              if (image) {
+                const marker = encodeDiagramMarker(block.diagramType, block.content);
+                const scaled = scaleToMaxWidth(image.width, image.height, 600);
+                children.push(
+                  new Paragraph({
+                    children: [
+                      new ImageRun({
+                        data: image.data,
+                        transformation: {
+                          width: scaled.width,
+                          height: scaled.height,
+                        },
+                        altText: {
+                          name: 'MDX Diagram',
+                          title: 'MDX Diagram',
+                          description: marker,
+                        },
+                      }),
+                    ],
+                    alignment: AlignmentType.CENTER,
+                  })
+                );
+                children.push(
+                  new Paragraph({
+                    children: [
+                      new TextRun({
+                        text: marker,
+                        vanish: true,
+                        size: 2,
+                        color: 'FFFFFF',
+                      }),
+                    ],
+                  })
+                );
+                break;
+              }
+            } catch {
+              // Fall back to plain text below.
             }
-          } catch {
-            // Fall back to plain text below.
           }
-        }
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: block.content || '',
-                font: 'Consolas',
-                size: 20, // 10pt
-              }),
-            ],
-            shading: { fill: 'f5f5f5' },
-          })
-        );
-        break;
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: block.content || '',
+                  font: 'Consolas',
+                  size: 20, // 10pt
+                }),
+              ],
+              shading: { fill: 'f5f5f5' },
+            })
+          );
+          break;
 
       case 'blockquote':
         children.push(
@@ -1174,29 +1330,40 @@ export async function markdownToDocx(
         );
         break;
 
-      case 'image':
-        // Try to load local image
-        if (block.src) {
-          const imagePath = path.isAbsolute(block.src)
-            ? block.src
-            : path.join(options.baseDir, block.src);
+        case 'image':
+          // Try to load local image
+          if (block.src) {
+            const imagePath = path.isAbsolute(block.src)
+              ? block.src
+              : path.join(options.baseDir, block.src);
 
-          if (fs.existsSync(imagePath)) {
-            try {
-              const imageBuffer = fs.readFileSync(imagePath);
-              children.push(
-                new Paragraph({
-                  children: [
-                    new ImageRun({
-                      data: imageBuffer,
-                      transformation: { width: 400, height: 300 },
-                    }),
-                  ],
-                  alignment: AlignmentType.CENTER,
-                })
-              );
-            } catch {
-              // If image fails to load, add placeholder text
+            if (fs.existsSync(imagePath)) {
+              try {
+                const imageBuffer = fs.readFileSync(imagePath);
+                const dimensions = getImageDimensions(imageBuffer) ?? { width: 400, height: 300 };
+                const scaled = scaleToMaxWidth(dimensions.width, dimensions.height, 600);
+                children.push(
+                  new Paragraph({
+                    children: [
+                      new ImageRun({
+                        data: imageBuffer,
+                        transformation: scaled,
+                      }),
+                    ],
+                    alignment: AlignmentType.CENTER,
+                  })
+                );
+              } catch {
+                // If image fails to load, add placeholder text
+                children.push(
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: `[Image: ${block.alt || block.src}]`, italics: true }),
+                    ],
+                  })
+                );
+              }
+            } else {
               children.push(
                 new Paragraph({
                   children: [
@@ -1205,17 +1372,13 @@ export async function markdownToDocx(
                 })
               );
             }
-          } else {
-            children.push(
-              new Paragraph({
-                children: [
-                  new TextRun({ text: `[Image: ${block.alt || block.src}]`, italics: true }),
-                ],
-              })
-            );
           }
-        }
-        break;
+          break;
+      }
+    }
+  } finally {
+    if (diagramBrowser) {
+      await diagramBrowser.close();
     }
   }
 

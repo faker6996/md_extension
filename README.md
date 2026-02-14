@@ -93,6 +93,8 @@ Configure the extension in VS Code settings (`Ctrl+,` / `Cmd+,`):
 | `mdxExporter.headerTemplate`       | string  | (empty) | PDF header template                         |
 | `mdxExporter.footerTemplate`       | string  | ...     | PDF footer template                         |
 | `mdxExporter.styles`               | array   | `[]`    | Custom CSS file paths                       |
+| `mdxExporter.allowRawHtmlInPreview` | boolean | `false` | Allow raw HTML in custom preview            |
+| `mdxExporter.allowUnsafeEvalInPreview` | boolean | `false` | Enable `unsafe-eval` in preview CSP         |
 | `mdxExporter.jpegQuality`          | number  | `90`    | JPEG export quality (0-100)                 |
 
 ## Supported Markdown Features
