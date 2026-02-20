@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { markdownToHtml } from './markdown-converter';
+import { markdownToHtml } from '../converters';
 
 /**
  * Manages the Markdown Preview WebView panel

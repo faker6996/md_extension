@@ -9,13 +9,12 @@ import {
   htmlToImage,
   markdownToDocx,
   findChromePath,
-  PdfOptions,
-  ImageOptions,
-  DocxOptions,
-} from './markdown-converter';
+  docxToHtml,
+  docxToMarkdown,
+} from './converters';
+import type { PdfOptions, ImageOptions, DocxOptions } from './converters';
 import { PdfViewerProvider } from './pdf-viewer';
-import { docxToHtml, docxToMarkdown } from './docx-converter';
-import { MarkdownPreviewPanel } from './markdown-preview';
+import { MarkdownPreviewPanel } from './preview';
 
 // Configuration interface
 interface MdxExporterConfig {

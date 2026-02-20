@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { markdownConverterTestUtils, markdownToHtml } from './markdown-converter';
+import { markdownToHtml } from './markdown-converter';
+import { markdownConverterTestUtils } from './markdown-docx-converter';
 
 void test('parseMarkdownBlocks parses markdown table with separator row', () => {
   const markdown = [
