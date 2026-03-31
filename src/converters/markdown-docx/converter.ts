@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import puppeteer, { Browser } from 'puppeteer-core';
 import {
   AlignmentType,
@@ -17,9 +16,24 @@ import {
 import { findChromePath } from '../chrome-path';
 import { encodeDiagramMarker, renderDiagramToPngBuffer } from './diagram';
 import { getHeadingLevel, processInlineMarkdown } from './inline';
-import { getImageDimensions, scaleToMaxWidth } from './media';
+import { getImageDimensions, loadImageBuffer, scaleToMaxWidth } from './media';
 import { parseMarkdownBlocks } from './parser';
-import type { DocxOptions } from './types';
+import type { DocxOptions, HorizontalAlignment } from './types';
+
+type DocxAlignment = (typeof AlignmentType)[keyof typeof AlignmentType];
+
+function toDocxAlignment(alignment?: HorizontalAlignment): DocxAlignment | undefined {
+  switch (alignment) {
+    case 'center':
+      return AlignmentType.CENTER;
+    case 'right':
+      return AlignmentType.RIGHT;
+    case 'left':
+      return AlignmentType.LEFT;
+    default:
+      return undefined;
+  }
+}
 
 export async function markdownToDocx(
   content: string,
@@ -54,8 +68,9 @@ export async function markdownToDocx(
         case 'heading':
           children.push(
             new Paragraph({
-              children: processInlineMarkdown(block.content || ''),
+              children: await processInlineMarkdown(block.content || '', options),
               heading: getHeadingLevel(block.level || 1),
+              alignment: toDocxAlignment(block.alignment),
             })
           );
           break;
@@ -63,7 +78,8 @@ export async function markdownToDocx(
         case 'paragraph':
           children.push(
             new Paragraph({
-              children: processInlineMarkdown(block.content || ''),
+              children: await processInlineMarkdown(block.content || '', options),
+              alignment: toDocxAlignment(block.alignment),
             })
           );
           break;
@@ -79,6 +95,7 @@ export async function markdownToDocx(
                 }),
               ],
               shading: { fill: 'f5f5f5' },
+              alignment: toDocxAlignment(block.alignment),
             })
           );
           break;
@@ -110,7 +127,7 @@ export async function markdownToDocx(
                         },
                       }),
                     ],
-                    alignment: AlignmentType.CENTER,
+                    alignment: toDocxAlignment(block.alignment) ?? AlignmentType.CENTER,
                   })
                 );
                 children.push(
@@ -141,6 +158,7 @@ export async function markdownToDocx(
                 }),
               ],
               shading: { fill: 'f5f5f5' },
+              alignment: toDocxAlignment(block.alignment),
             })
           );
           break;
@@ -148,11 +166,12 @@ export async function markdownToDocx(
         case 'blockquote':
           children.push(
             new Paragraph({
-              children: processInlineMarkdown(block.content || ''),
+              children: await processInlineMarkdown(block.content || '', options),
               indent: { left: 720 },
               border: {
                 left: { style: BorderStyle.SINGLE, size: 24, color: 'cccccc' },
               },
+              alignment: toDocxAlignment(block.alignment),
             })
           );
           break;
@@ -164,8 +183,9 @@ export async function markdownToDocx(
               const bullet = block.ordered ? `${idx + 1}. ` : '• ';
               children.push(
                 new Paragraph({
-                  children: [new TextRun({ text: bullet }), ...processInlineMarkdown(item)],
+                  children: [new TextRun({ text: bullet }), ...(await processInlineMarkdown(item, options))],
                   indent: { left: 720 },
+                  alignment: toDocxAlignment(block.alignment),
                 })
               );
             }
@@ -174,27 +194,35 @@ export async function markdownToDocx(
 
         case 'table':
           if (block.rows && block.rows.length > 0) {
-            const tableRows = block.rows.map(
-              (row, rowIndex) =>
+            const tableRows: TableRow[] = [];
+            for (let rowIndex = 0; rowIndex < block.rows.length; rowIndex++) {
+              const row = block.rows[rowIndex];
+              const cells: TableCell[] = [];
+              for (const cell of row) {
+                cells.push(
+                  new TableCell({
+                    children: [
+                      new Paragraph({
+                        children: await processInlineMarkdown(cell, options),
+                        alignment: toDocxAlignment(block.alignment),
+                      }),
+                    ],
+                    shading: rowIndex === 0 ? { fill: 'f5f5f5' } : undefined,
+                  })
+                );
+              }
+              tableRows.push(
                 new TableRow({
-                  children: row.map(
-                    (cell) =>
-                      new TableCell({
-                        children: [
-                          new Paragraph({
-                            children: processInlineMarkdown(cell),
-                          }),
-                        ],
-                        shading: rowIndex === 0 ? { fill: 'f5f5f5' } : undefined,
-                      })
-                  ),
+                  children: cells,
                 })
-            );
+              );
+            }
 
             children.push(
               new Table({
                 rows: tableRows,
                 width: { size: 100, type: WidthType.PERCENTAGE },
+                alignment: toDocxAlignment(block.alignment),
               })
             );
           }
@@ -207,19 +235,16 @@ export async function markdownToDocx(
               border: {
                 bottom: { style: BorderStyle.SINGLE, size: 6, color: 'cccccc' },
               },
+              alignment: toDocxAlignment(block.alignment),
             })
           );
           break;
 
         case 'image':
           if (block.src) {
-            const imagePath = path.isAbsolute(block.src)
-              ? block.src
-              : path.join(options.baseDir, block.src);
-
-            if (fs.existsSync(imagePath)) {
+            const imageBuffer = await loadImageBuffer(block.src, options.baseDir);
+            if (imageBuffer) {
               try {
-                const imageBuffer = fs.readFileSync(imagePath);
                 const dimensions = getImageDimensions(imageBuffer) ?? { width: 400, height: 300 };
                 const scaled = scaleToMaxWidth(dimensions.width, dimensions.height, 600);
                 children.push(
@@ -230,7 +255,7 @@ export async function markdownToDocx(
                         transformation: scaled,
                       }),
                     ],
-                    alignment: AlignmentType.CENTER,
+                    alignment: toDocxAlignment(block.alignment) ?? AlignmentType.CENTER,
                   })
                 );
               } catch {
@@ -239,6 +264,7 @@ export async function markdownToDocx(
                     children: [
                       new TextRun({ text: `[Image: ${block.alt || block.src}]`, italics: true }),
                     ],
+                    alignment: toDocxAlignment(block.alignment),
                   })
                 );
               }
@@ -246,6 +272,7 @@ export async function markdownToDocx(
               children.push(
                 new Paragraph({
                   children: [new TextRun({ text: `[Image: ${block.alt || block.src}]`, italics: true })],
+                  alignment: toDocxAlignment(block.alignment),
                 })
               );
             }

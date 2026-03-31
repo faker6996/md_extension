@@ -8,9 +8,14 @@ on:
       - '**.md'
       - '.vscode/**'
 
+concurrency:
+  group: vscode-marketplace-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
     permissions:
       contents: write
 
@@ -25,6 +30,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: npm
 
       - name: Configure Git
         run: |
@@ -34,34 +40,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run Lint
+        run: npm run lint
+
+      - name: Run Tests
+        run: npm test
+
       - name: Run Build
         run: npm run compile
 
-      - name: Bump Version & Push Tag
+      - name: Bump Version
         id: bump_version
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-
-          # Tăng version trong package.json nhưng không tạo tag git ngay
           npm version patch --no-git-tag-version
 
-          # Lấy số version mới
           NEW_VERSION=$(node -p "require('./package.json').version")
           TAG="v$NEW_VERSION"
 
-          # Commit thay đổi
-          git commit -am "Bump version to $NEW_VERSION [skip ci]"
-
-          # Tạo tag mới cho version vừa bump
-          git tag "$TAG"
-
-          # Đẩy commit và tag, tránh force-push để giảm rủi ro ghi đè lịch sử
-          git push origin master
-          git push origin "$TAG"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to VS Code Marketplace
         uses: HaaLeo/publish-vscode-extension@v1
         with:
           pat: ${{ secrets.VSCE_PAT }}
           registryUrl: https://marketplace.visualstudio.com
+
+      - name: Commit Version Bump and Push Tag
+        run: |
+          git add package.json package-lock.json
+          git commit -m "Bump version to ${{ steps.bump_version.outputs.version }} [skip ci]"
+          git tag "${{ steps.bump_version.outputs.tag }}"
+          git push origin master
+          git push origin "${{ steps.bump_version.outputs.tag }}"

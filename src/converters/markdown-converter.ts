@@ -98,6 +98,7 @@ function sanitizeRawHtml(content: string): string {
   return sanitizeHtml(content, {
     allowedTags: [...allowedTags],
     allowedAttributes: {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       '*': ['id', 'class', 'title', 'lang', 'dir', 'align'],
       a: ['href', 'name', 'target', 'rel', 'title'],
       img: ['src', 'alt', 'title', 'width', 'height', 'align'],
@@ -245,9 +246,31 @@ export function markdownToHtml(
         const isDark = document.body.classList.contains('vscode-dark');
         mermaid.initialize({
           startOnLoad: true,
-          theme: isDark ? 'dark' : 'default',
+          theme: isDark ? 'base' : 'default',
           securityLevel: 'loose',
           fontFamily: 'var(--vscode-font-family)',
+          themeVariables: isDark
+            ? {
+                darkMode: true,
+                background: '#0f172a',
+                primaryColor: '#1e293b',
+                primaryTextColor: '#f8fafc',
+                primaryBorderColor: '#94a3b8',
+                lineColor: '#94a3b8',
+                secondaryColor: '#172033',
+                secondaryTextColor: '#e2e8f0',
+                secondaryBorderColor: '#64748b',
+                tertiaryColor: '#0b1220',
+                tertiaryTextColor: '#f8fafc',
+                tertiaryBorderColor: '#475569',
+                clusterBkg: '#111827',
+                clusterBorder: '#64748b',
+                edgeLabelBackground: '#0f172a',
+                defaultLinkColor: '#94a3b8',
+                nodeBkg: '#1e293b',
+                mainBkg: '#1e293b',
+              }
+            : undefined,
         });
       };
       
@@ -332,6 +355,10 @@ export function markdownToHtml(
       background: none;
       padding: 0;
       text-align: center;
+    }
+    .mermaid svg {
+      max-width: 100%;
+      height: auto;
     }
     blockquote {
       border-left: 4px solid var(--vscode-textSeparator-foreground);

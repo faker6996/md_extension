@@ -1,4 +1,4 @@
-import type { MarkdownBlock } from './types';
+import type { HorizontalAlignment, MarkdownBlock } from './types';
 
 function parseMarkdownTableRow(line: string): string[] {
   let normalized = line.trim();
@@ -11,13 +11,65 @@ function parseMarkdownTableRow(line: string): string[] {
   return normalized.split('|').map((cell) => cell.trim());
 }
 
+function parseAlignmentAttribute(rawAttributes: string): HorizontalAlignment | undefined {
+  const alignMatch = rawAttributes.match(/\balign\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
+  const alignValue = (alignMatch?.[1] ?? alignMatch?.[2] ?? alignMatch?.[3] ?? '').toLowerCase();
+
+  if (alignValue === 'left' || alignValue === 'center' || alignValue === 'right') {
+    return alignValue;
+  }
+
+  return undefined;
+}
+
+function currentAlignment(stack: HorizontalAlignment[]): HorizontalAlignment | undefined {
+  return stack[stack.length - 1];
+}
+
 export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const lines = content.split('\n');
+  const alignmentStack: HorizontalAlignment[] = [];
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
+    const trimmedLine = line.trim();
+
+    const centeredContainerMatch = trimmedLine.match(/^<(div|p)\b([^>]*)>$/i);
+    if (centeredContainerMatch) {
+      alignmentStack.push(parseAlignmentAttribute(centeredContainerMatch[2]) ?? currentAlignment(alignmentStack) ?? 'left');
+      i++;
+      continue;
+    }
+
+    if (/^<center>$/i.test(trimmedLine)) {
+      alignmentStack.push('center');
+      i++;
+      continue;
+    }
+
+    if (/^<\/(div|p|center)>$/i.test(trimmedLine)) {
+      alignmentStack.pop();
+      i++;
+      continue;
+    }
+
+    if (/^<details\b[^>]*>$/i.test(trimmedLine) || /^<\/details>$/i.test(trimmedLine)) {
+      i++;
+      continue;
+    }
+
+    const summaryMatch = trimmedLine.match(/^<summary>([\s\S]*?)<\/summary>$/i);
+    if (summaryMatch) {
+      blocks.push({
+        type: 'paragraph',
+        content: `**${summaryMatch[1].trim()}**`,
+        alignment: currentAlignment(alignmentStack),
+      });
+      i++;
+      continue;
+    }
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
@@ -25,13 +77,14 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         type: 'heading',
         level: headingMatch[1].length,
         content: headingMatch[2].trim(),
+        alignment: currentAlignment(alignmentStack),
       });
       i++;
       continue;
     }
 
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-      blocks.push({ type: 'hr' });
+      blocks.push({ type: 'hr', alignment: currentAlignment(alignmentStack) });
       i++;
       continue;
     }
@@ -55,12 +108,14 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
           type: 'diagram',
           diagramType: isMermaid ? 'mermaid' : 'plantuml',
           content: codeContent,
+          alignment: currentAlignment(alignmentStack),
         });
       } else {
         blocks.push({
           type: 'code',
           content: codeContent,
           language,
+          alignment: currentAlignment(alignmentStack),
         });
       }
       i++;
@@ -76,6 +131,7 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       blocks.push({
         type: 'blockquote',
         content: quoteLines.join('\n'),
+        alignment: currentAlignment(alignmentStack),
       });
       continue;
     }
@@ -90,6 +146,7 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         type: 'list',
         items,
         ordered: false,
+        alignment: currentAlignment(alignmentStack),
       });
       continue;
     }
@@ -104,6 +161,7 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         type: 'list',
         items,
         ordered: true,
+        alignment: currentAlignment(alignmentStack),
       });
       continue;
     }
@@ -131,6 +189,7 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         blocks.push({
           type: 'table',
           rows: tableRows,
+          alignment: currentAlignment(alignmentStack),
         });
       }
       continue;
@@ -142,6 +201,7 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         type: 'image',
         alt: imageMatch[1],
         src: imageMatch[2],
+        alignment: currentAlignment(alignmentStack),
       });
       i++;
       continue;
@@ -171,6 +231,7 @@ export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         blocks.push({
           type: 'paragraph',
           content: paragraphLines.join(' '),
+          alignment: currentAlignment(alignmentStack),
         });
       }
       continue;

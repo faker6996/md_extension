@@ -37,6 +37,40 @@ void test('parseInlineMarkdownSegments recognizes links and formatting tokens', 
   ]);
 });
 
+void test('parseMarkdownBlocks keeps alignment from centered html container', () => {
+  const markdown = [
+    '<div align="center">',
+    '',
+    '# Title',
+    '',
+    'Centered paragraph',
+    '',
+    '</div>',
+  ].join('\n');
+
+  const blocks = markdownConverterTestUtils.parseMarkdownBlocks(markdown);
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].type, 'heading');
+  assert.equal(blocks[0].alignment, 'center');
+  assert.equal(blocks[1].type, 'paragraph');
+  assert.equal(blocks[1].alignment, 'center');
+});
+
+void test('parseInlineMarkdownSegments recognizes linked badge images', () => {
+  const segments = markdownConverterTestUtils.parseInlineMarkdownSegments(
+    '[![VS Code](https://img.shields.io/badge/vscode-blue)](https://code.visualstudio.com/)'
+  );
+
+  assert.deepEqual(segments, [
+    {
+      type: 'imageLink',
+      text: 'VS Code',
+      src: 'https://img.shields.io/badge/vscode-blue',
+      href: 'https://code.visualstudio.com/',
+    },
+  ]);
+});
+
 void test('getImageDimensions returns width/height for png buffer', () => {
   const buffer = Buffer.alloc(24);
   buffer[0] = 0x89;
