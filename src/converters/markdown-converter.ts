@@ -99,7 +99,7 @@ function sanitizeRawHtml(content: string): string {
     allowedTags: [...allowedTags],
     allowedAttributes: {
       // eslint-disable-next-line @typescript-eslint/naming-convention
-      '*': ['id', 'class', 'title', 'lang', 'dir', 'align'],
+      '*': ['id', 'class', 'title', 'lang', 'dir', 'align', 'data-mdx-mermaid'],
       a: ['href', 'name', 'target', 'rel', 'title'],
       img: ['src', 'alt', 'title', 'width', 'height', 'align'],
       div: ['align'],
@@ -183,11 +183,8 @@ export function markdownToHtml(
   isPreview: boolean = false,
   htmlOptions?: MarkdownHtmlOptions
 ): string {
-  const allowRawHtml = htmlOptions?.allowRawHtml ?? true;
-  const sanitizedContent = allowRawHtml ? content : sanitizeRawHtml(content);
-
   // Process mermaid code blocks
-  let processedContent = sanitizedContent.replace(
+  let processedContent = content.replace(
     /```mermaid\n([\s\S]*?)```/g,
     (_match, mermaidCode: string) =>
       `<div class="mermaid" data-mdx-mermaid="true">${escapeHtml(mermaidCode.trim())}</div>`
@@ -202,6 +199,11 @@ export function markdownToHtml(
       return `<img src="https://www.plantuml.com/plantuml/svg/${encoded}" alt="PlantUML Diagram" />`;
     }
   );
+
+  const allowRawHtml = htmlOptions?.allowRawHtml ?? true;
+  if (!allowRawHtml) {
+    processedContent = sanitizeRawHtml(processedContent);
+  }
 
   const scriptNonceAttr = getNonceAttr(htmlOptions?.scriptNonce);
   const styleNonceAttr = getNonceAttr(htmlOptions?.styleNonce);
