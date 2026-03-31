@@ -616,15 +616,6 @@ export function markdownToHtml(
     .mermaid svg .noteText {
       fill: var(--vscode-foreground) !important;
     }
-    .mermaid svg line,
-    .mermaid svg path,
-    .mermaid svg polyline,
-    .mermaid svg polygon,
-    .mermaid svg rect,
-    .mermaid svg circle,
-    .mermaid svg ellipse {
-      stroke: inherit;
-    }
     .mermaid svg .edgeLabel rect,
     .mermaid svg .labelBox,
     .mermaid svg .labelBkg {
@@ -652,9 +643,18 @@ export function markdownToHtml(
     .mermaid svg .edge-pattern-dashed,
     .mermaid svg .edge-thickness-normal,
     .mermaid svg .edge-thickness-thick,
-    .mermaid svg marker path {
+    .mermaid svg .flowchart-link {
       stroke: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+      fill: none !important;
+    }
+    .mermaid svg .arrowheadPath,
+    .mermaid svg #arrowhead path,
+    .mermaid svg #crosshead path,
+    .mermaid svg #filled-head path,
+    .mermaid svg #sequencenumber path,
+    .mermaid svg marker path {
       fill: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+      stroke: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
     }
     .mermaid svg .node rect,
     .mermaid svg .node circle,
