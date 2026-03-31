@@ -1,5 +1,6 @@
 import markdownIt from 'markdown-it';
 import { full as emoji } from 'markdown-it-emoji';
+import sanitizeHtml from 'sanitize-html';
 import texmath from 'markdown-it-texmath';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,7 +21,6 @@ function createMarkdownParser(allowRawHtml: boolean): markdownIt {
 }
 
 const markdownParserWithHtml = createMarkdownParser(true);
-const markdownParserWithoutHtml = createMarkdownParser(false);
 
 export interface MarkdownHtmlOptions {
   wrapCodeBlocks?: boolean;
@@ -65,6 +65,73 @@ export function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function sanitizeRawHtml(content: string): string {
+  const allowedTags = new Set([
+    ...sanitizeHtml.defaults.allowedTags,
+    'details',
+    'summary',
+    'div',
+    'span',
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'th',
+    'td',
+    'colgroup',
+    'col',
+    'figure',
+    'figcaption',
+    'kbd',
+    'samp',
+    'var',
+    'mark',
+    'ins',
+    'del',
+    'u',
+    'sub',
+    'sup',
+    'center',
+  ]);
+
+  return sanitizeHtml(content, {
+    allowedTags: [...allowedTags],
+    allowedAttributes: {
+      '*': ['id', 'class', 'title', 'lang', 'dir', 'align'],
+      a: ['href', 'name', 'target', 'rel', 'title'],
+      img: ['src', 'alt', 'title', 'width', 'height', 'align'],
+      div: ['align'],
+      p: ['align'],
+      span: ['align'],
+      table: ['width', 'align', 'cellpadding', 'cellspacing'],
+      col: ['width', 'span'],
+      colgroup: ['span', 'width'],
+      td: ['width', 'height', 'align', 'valign', 'colspan', 'rowspan'],
+      th: ['width', 'height', 'align', 'valign', 'colspan', 'rowspan', 'scope'],
+      ol: ['start', 'type'],
+      li: ['value'],
+      details: ['open'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto', 'tel', 'file', 'data'],
+    allowedSchemesByTag: {
+      img: ['http', 'https', 'data', 'file'],
+    },
+    allowProtocolRelative: false,
+    disallowedTagsMode: 'escape',
+    parseStyleAttributes: false,
+    transformTags: {
+      a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' }, true),
+    },
+    exclusiveFilter(frame) {
+      if (frame.tag === 'a' && !frame.attribs.href) {
+        return true;
+      }
+      return false;
+    },
+  });
+}
+
 function getNonceAttr(nonce?: string): string {
   return nonce ? ` nonce="${nonce}"` : '';
 }
@@ -101,8 +168,11 @@ export function markdownToHtml(
   isPreview: boolean = false,
   htmlOptions?: MarkdownHtmlOptions
 ): string {
+  const allowRawHtml = htmlOptions?.allowRawHtml ?? true;
+  const sanitizedContent = allowRawHtml ? content : sanitizeRawHtml(content);
+
   // Process mermaid code blocks
-  let processedContent = content.replace(
+  let processedContent = sanitizedContent.replace(
     /```mermaid\n([\s\S]*?)```/g,
     '<pre class="mermaid">$1</pre>'
   );
@@ -117,11 +187,9 @@ export function markdownToHtml(
     }
   );
 
-  const allowRawHtml = htmlOptions?.allowRawHtml ?? true;
   const scriptNonceAttr = getNonceAttr(htmlOptions?.scriptNonce);
   const styleNonceAttr = getNonceAttr(htmlOptions?.styleNonce);
-  const parser = allowRawHtml ? markdownParserWithHtml : markdownParserWithoutHtml;
-  const htmlContent = parser.render(processedContent);
+  const htmlContent = markdownParserWithHtml.render(processedContent);
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
   const mermaidScriptTag = getMermaidScriptTag(htmlOptions?.scriptNonce);
@@ -310,6 +378,30 @@ export function markdownToHtml(
       border: none;
       border-top: 1px solid var(--vscode-textSeparator-foreground);
       margin: 2em 0;
+    }
+    [align="center"] {
+      text-align: center;
+    }
+    [align="right"] {
+      text-align: right;
+    }
+    [align="left"] {
+      text-align: left;
+    }
+    details {
+      margin: 1em 0;
+      padding: 0.75em 1em;
+      border: 1px solid var(--vscode-textSeparator-foreground);
+      border-radius: 8px;
+      background-color: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-textCodeBlock-background) 8%);
+    }
+    details > summary {
+      cursor: pointer;
+      font-weight: 600;
+      list-style-position: outside;
+    }
+    details[open] > summary {
+      margin-bottom: 0.75em;
     }
     ${customCss}
   </style>

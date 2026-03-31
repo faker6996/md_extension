@@ -87,3 +87,54 @@ void test('markdownToHtml injects script/style nonce attributes when provided', 
   assert.match(html, /<style nonce="nonce-123">/);
   assert.match(html, /<script[^>]*nonce="nonce-123"/);
 });
+
+void test('markdownToHtml preserves safe details markup when raw html is disabled', () => {
+  const html = markdownToHtml(
+    [
+      '<details open>',
+      '<summary><b>Troubleshooting</b></summary>',
+      '',
+      '- [Chrome](https://www.google.com/chrome/)',
+      '</details>',
+    ].join('\n'),
+    '/tmp',
+    [],
+    true,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<details open>/);
+  assert.match(html, /<summary><b>Troubleshooting<\/b><\/summary>/);
+  assert.match(html, /<li><a [^>]*href="https:\/\/www\.google\.com\/chrome\/"[^>]*>Chrome<\/a><\/li>/);
+});
+
+void test('markdownToHtml preserves centered div markup when raw html is disabled', () => {
+  const html = markdownToHtml(
+    [
+      '<div align="center">',
+      '',
+      '# Toolkit',
+      '',
+      '</div>',
+    ].join('\n'),
+    '/tmp',
+    [],
+    true,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<div align="center">/);
+  assert.match(html, /<h1>Toolkit<\/h1>/);
+});
+
+void test('markdownToHtml escapes unsupported raw html when raw html is disabled', () => {
+  const html = markdownToHtml('<script>alert(1)</script>', '/tmp', [], true, {
+    allowRawHtml: false,
+  });
+
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
