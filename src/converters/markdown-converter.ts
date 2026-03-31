@@ -429,21 +429,29 @@ export function markdownToHtml(
     [align="left"] {
       text-align: left;
     }
-    p.mdx-image-row {
+    p.mdx-image-row,
+    p:has(> img),
+    p:has(> a > img) {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       align-items: center;
       gap: 10px;
     }
-    p.mdx-image-row br {
+    p.mdx-image-row br,
+    p:has(> img) br,
+    p:has(> a > img) br {
       display: none;
     }
-    p.mdx-image-row a {
+    p.mdx-image-row a,
+    p:has(> img) a,
+    p:has(> a > img) a {
       display: inline-flex;
       align-items: center;
     }
-    p.mdx-image-row img {
+    p.mdx-image-row img,
+    p:has(> img) img,
+    p:has(> a > img) img {
       display: block;
     }
     details {
