@@ -256,55 +256,286 @@ export function markdownToHtml(
     // Dynamic theme detection for preview
     mermaidInit = `
     <script${scriptNonceAttr}>
-      const initMermaid = () => {
-        const isDark = document.body.classList.contains('vscode-dark');
-        mermaid.initialize({
-          startOnLoad: true,
-          theme: isDark ? 'base' : 'default',
-          securityLevel: 'loose',
-          fontFamily: 'var(--vscode-font-family)',
-          themeVariables: isDark
-            ? {
-                darkMode: true,
-                background: '#0f172a',
-                primaryColor: '#1e293b',
-                primaryTextColor: '#f8fafc',
-                primaryBorderColor: '#94a3b8',
-                lineColor: '#94a3b8',
-                secondaryColor: '#172033',
-                secondaryTextColor: '#e2e8f0',
-                secondaryBorderColor: '#64748b',
-                tertiaryColor: '#0b1220',
-                tertiaryTextColor: '#f8fafc',
-                tertiaryBorderColor: '#475569',
-                clusterBkg: '#111827',
-                clusterBorder: '#64748b',
-                edgeLabelBackground: '#0f172a',
-                defaultLinkColor: '#94a3b8',
-                nodeBkg: '#1e293b',
-                mainBkg: '#1e293b',
-              }
-            : undefined,
-        });
+      const MERMAID_SELECTOR = 'pre.mermaid';
+      let renderVersion = 0;
+      let rerenderTimer = null;
+
+      const readThemeVar = (name, fallback) => {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return value || fallback;
       };
-      
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initMermaid);
-      } else {
-        initMermaid();
-      }
-      
-      // Re-render on theme change
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.attributeName === 'class') {
-            // Simple reload to re-render mermaid with new theme
-            // This is the most reliable way to switch mermaid themes
-            location.reload();
+
+      const parseRgbColor = (value) => {
+        const normalized = value.trim().toLowerCase();
+        const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+        if (hexMatch) {
+          const hex = hexMatch[1];
+          if (hex.length === 3) {
+            return {
+              r: parseInt(hex[0] + hex[0], 16),
+              g: parseInt(hex[1] + hex[1], 16),
+              b: parseInt(hex[2] + hex[2], 16),
+            };
           }
-        });
+          return {
+            r: parseInt(hex.slice(0, 2), 16),
+            g: parseInt(hex.slice(2, 4), 16),
+            b: parseInt(hex.slice(4, 6), 16),
+          };
+        }
+
+        const rgbMatch = normalized.match(
+          /^rgba?\\(\\s*(\\d+(?:\\.\\d+)?)\\s*,\\s*(\\d+(?:\\.\\d+)?)\\s*,\\s*(\\d+(?:\\.\\d+)?)(?:\\s*,\\s*\\d+(?:\\.\\d+)?)?\\s*\\)$/
+        );
+        if (rgbMatch) {
+          return {
+            r: Number(rgbMatch[1]),
+            g: Number(rgbMatch[2]),
+            b: Number(rgbMatch[3]),
+          };
+        }
+
+        return null;
+      };
+
+      const isDarkColor = (value) => {
+        const parsed = parseRgbColor(value);
+        if (!parsed) {
+          return false;
+        }
+        const luminance =
+          (0.2126 * parsed.r + 0.7152 * parsed.g + 0.0722 * parsed.b) / 255;
+        return luminance < 0.5;
+      };
+
+      const buildMermaidConfig = () => {
+        const background = readThemeVar('--vscode-editor-background', '#ffffff');
+        const darkMode =
+          document.body.classList.contains('vscode-dark') ||
+          document.body.classList.contains('vscode-high-contrast') ||
+          isDarkColor(background);
+        const foreground = readThemeVar(
+          '--vscode-editor-foreground',
+          darkMode ? '#f3f4f6' : '#1f2937'
+        );
+        const border = readThemeVar(
+          '--vscode-panel-border',
+          darkMode ? '#4b5563' : '#cbd5e1'
+        );
+        const muted = readThemeVar(
+          '--vscode-descriptionForeground',
+          darkMode ? '#cbd5e1' : '#475569'
+        );
+        const accent = readThemeVar(
+          '--vscode-textLink-foreground',
+          darkMode ? '#93c5fd' : '#2563eb'
+        );
+        const surface = readThemeVar(
+          '--vscode-textCodeBlock-background',
+          darkMode ? 'rgba(30, 41, 59, 0.92)' : '#f8fafc'
+        );
+        const surfaceAlt = readThemeVar(
+          '--vscode-textBlockQuote-background',
+          darkMode ? 'rgba(15, 23, 42, 0.9)' : '#eef2ff'
+        );
+        const surfaceStrong = readThemeVar(
+          '--vscode-editor-inactiveSelectionBackground',
+          darkMode ? '#334155' : '#dbeafe'
+        );
+        const danger = readThemeVar(
+          '--vscode-errorForeground',
+          darkMode ? '#f87171' : '#dc2626'
+        );
+        const success = readThemeVar(
+          '--vscode-testing-iconPassed',
+          darkMode ? '#4ade80' : '#16a34a'
+        );
+        const warning = readThemeVar(
+          '--vscode-testing-iconQueued',
+          darkMode ? '#fbbf24' : '#d97706'
+        );
+        const grid = readThemeVar(
+          '--vscode-textSeparator-foreground',
+          darkMode ? '#475569' : '#cbd5e1'
+        );
+
+        return {
+          startOnLoad: false,
+          theme: 'base',
+          securityLevel: 'loose',
+          fontFamily: readThemeVar(
+            '--vscode-font-family',
+            "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          ),
+          themeVariables: {
+            darkMode,
+            background,
+            textColor: foreground,
+            primaryColor: surface,
+            primaryTextColor: foreground,
+            primaryBorderColor: border,
+            secondaryColor: surfaceAlt,
+            secondaryTextColor: foreground,
+            secondaryBorderColor: border,
+            tertiaryColor: background,
+            tertiaryTextColor: foreground,
+            tertiaryBorderColor: border,
+            lineColor: border,
+            defaultLinkColor: border,
+            edgeLabelBackground: background,
+            clusterBkg: surfaceAlt,
+            clusterBorder: border,
+            nodeBkg: surface,
+            mainBkg: surface,
+            nodeTextColor: foreground,
+            nodeBorder: border,
+            actorBkg: surface,
+            actorTextColor: foreground,
+            actorBorder: border,
+            actorLineColor: border,
+            signalColor: border,
+            signalTextColor: foreground,
+            labelBoxBkgColor: background,
+            labelBoxBorderColor: border,
+            labelTextColor: foreground,
+            loopTextColor: foreground,
+            noteBkgColor: surfaceAlt,
+            noteTextColor: foreground,
+            noteBorderColor: border,
+            activationBkgColor: surfaceStrong,
+            activationBorderColor: border,
+            sequenceNumberColor: muted,
+            classText: foreground,
+            relationColor: border,
+            relationLabelBackground: background,
+            relationLabelColor: foreground,
+            sectionBkgColor: surfaceAlt,
+            sectionBkgColor2: surface,
+            altSectionBkgColor: background,
+            gridColor: grid,
+            taskBorderColor: border,
+            taskBkgColor: surfaceStrong,
+            taskTextColor: foreground,
+            taskTextDarkColor: foreground,
+            taskTextLightColor: foreground,
+            taskTextOutsideColor: foreground,
+            taskTextClickableColor: accent,
+            activeTaskBorderColor: accent,
+            activeTaskBkgColor: surface,
+            doneTaskBorderColor: border,
+            doneTaskBkgColor: muted,
+            critBorderColor: danger,
+            critBkgColor: warning,
+            todayLineColor: accent,
+            fillType0: surface,
+            fillType1: surfaceAlt,
+            fillType2: background,
+            fillType3: surfaceStrong,
+            fillType4: surfaceAlt,
+            fillType5: background,
+            fillType6: accent,
+            fillType7: success,
+            pie1: accent,
+            pie2: surface,
+            pie3: surfaceAlt,
+            pie4: border,
+            pie5: muted,
+            pie6: background,
+            pie7: accent,
+            pie8: surface,
+            pie9: surfaceAlt,
+            pieTitleTextColor: foreground,
+            pieSectionTextColor: foreground,
+            ganttTaskBkgColor: accent,
+            ganttTaskTextColor: foreground,
+            ganttTaskBorderColor: border,
+            ganttActiveTaskBkgColor: surfaceAlt,
+            ganttActiveTaskBorderColor: accent,
+            ganttActiveTaskTextColor: foreground,
+            ganttDoneTaskBkgColor: muted,
+            ganttDoneTaskBorderColor: border,
+            ganttDoneTaskTextColor: foreground,
+            cScale0: surface,
+            cScale1: surfaceAlt,
+            cScale2: background,
+            cScale3: accent,
+            cScale4: border,
+            cScale5: muted,
+            cScale6: surface,
+            cScale7: surfaceAlt,
+            cScale8: background,
+            cScale9: accent,
+            cScale10: border,
+            cScale11: muted,
+          },
+        };
+      };
+
+      const escapeMermaidSource = (value) =>
+        value
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+      const renderMermaid = async () => {
+        const blocks = Array.from(document.querySelectorAll(MERMAID_SELECTOR));
+        if (!blocks.length || typeof mermaid === 'undefined') {
+          return;
+        }
+
+        const currentVersion = ++renderVersion;
+        mermaid.initialize(buildMermaidConfig());
+
+        for (let index = 0; index < blocks.length; index++) {
+          const block = blocks[index];
+          const source = block.dataset.mermaidSource ?? block.textContent ?? '';
+          block.dataset.mermaidSource = source;
+          block.removeAttribute('data-processed');
+
+          try {
+            const renderId = 'mdx-mermaid-' + currentVersion + '-' + index;
+            const result = await mermaid.render(renderId, source);
+            if (currentVersion !== renderVersion) {
+              return;
+            }
+            block.innerHTML = result.svg;
+            if (typeof result.bindFunctions === 'function') {
+              result.bindFunctions(block);
+            }
+          } catch (_error) {
+            block.innerHTML = '<code>' + escapeMermaidSource(source) + '</code>';
+          }
+        }
+      };
+
+      const scheduleMermaidRender = () => {
+        clearTimeout(rerenderTimer);
+        rerenderTimer = setTimeout(() => {
+          void renderMermaid();
+        }, 60);
+      };
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', scheduleMermaidRender, { once: true });
+      } else {
+        scheduleMermaidRender();
+      }
+
+      const themeObserver = new MutationObserver((mutations) => {
+        if (
+          mutations.some(
+            (mutation) =>
+              mutation.attributeName === 'class' || mutation.attributeName === 'data-vscode-theme-kind'
+          )
+        ) {
+          scheduleMermaidRender();
+        }
       });
-      observer.observe(document.body, { attributes: true });
+
+      themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'data-vscode-theme-kind'],
+      });
     </script>`;
   } else {
     mermaidInit = `<script${scriptNonceAttr}>mermaid.initialize({startOnLoad:true, theme: 'default'});</script>`;
@@ -373,6 +604,132 @@ export function markdownToHtml(
     .mermaid svg {
       max-width: 100%;
       height: auto;
+      background: transparent !important;
+      font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif) !important;
+    }
+    .mermaid svg text,
+    .mermaid svg tspan,
+    .mermaid svg .label,
+    .mermaid svg .labelText,
+    .mermaid svg .messageText,
+    .mermaid svg .loopText,
+    .mermaid svg .noteText {
+      fill: var(--vscode-foreground) !important;
+    }
+    .mermaid svg line,
+    .mermaid svg path,
+    .mermaid svg polyline,
+    .mermaid svg polygon,
+    .mermaid svg rect,
+    .mermaid svg circle,
+    .mermaid svg ellipse {
+      stroke: inherit;
+    }
+    .mermaid svg .edgeLabel rect,
+    .mermaid svg .labelBox,
+    .mermaid svg .labelBkg {
+      fill: var(--vscode-editor-background) !important;
+      opacity: 1 !important;
+    }
+    .mermaid svg .actor,
+    .mermaid svg .actor-man circle,
+    .mermaid svg .actor-man line,
+    .mermaid svg .labelBox,
+    .mermaid svg .note,
+    .mermaid svg .activation0,
+    .mermaid svg .activation1,
+    .mermaid svg .activation2 {
+      fill: var(--vscode-textCodeBlock-background) !important;
+      stroke: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+    }
+    .mermaid svg .actor-line,
+    .mermaid svg .messageLine0,
+    .mermaid svg .messageLine1,
+    .mermaid svg .loopLine,
+    .mermaid svg .divider,
+    .mermaid svg .relation,
+    .mermaid svg .edge-pattern-solid,
+    .mermaid svg .edge-pattern-dashed,
+    .mermaid svg .edge-thickness-normal,
+    .mermaid svg .edge-thickness-thick,
+    .mermaid svg marker path {
+      stroke: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+      fill: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+    }
+    .mermaid svg .node rect,
+    .mermaid svg .node circle,
+    .mermaid svg .node ellipse,
+    .mermaid svg .node polygon,
+    .mermaid svg .node path,
+    .mermaid svg g.classGroup rect,
+    .mermaid svg g.classGroup line {
+      fill: var(--vscode-textCodeBlock-background) !important;
+      stroke: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+    }
+    .mermaid svg .grid .tick line,
+    .mermaid svg .grid path {
+      stroke: var(--vscode-textSeparator-foreground, #888) !important;
+    }
+    .mermaid svg .grid text,
+    .mermaid svg .taskText,
+    .mermaid svg .taskText0,
+    .mermaid svg .taskText1,
+    .mermaid svg .taskText2,
+    .mermaid svg .taskText3,
+    .mermaid svg .taskTextOutside,
+    .mermaid svg .taskTextOutsideLeft,
+    .mermaid svg .taskTextOutsideRight,
+    .mermaid svg .sectionTitle text,
+    .mermaid svg .classTitle {
+      fill: var(--vscode-foreground) !important;
+      stroke: none !important;
+    }
+    .mermaid svg .section0,
+    .mermaid svg .section1,
+    .mermaid svg .section2,
+    .mermaid svg .section3 {
+      fill: color-mix(
+        in srgb,
+        var(--vscode-editor-background) 82%,
+        var(--vscode-textCodeBlock-background) 18%
+      ) !important;
+    }
+    .mermaid svg .task,
+    .mermaid svg .task0,
+    .mermaid svg .task1,
+    .mermaid svg .task2,
+    .mermaid svg .task3,
+    .mermaid svg .active0,
+    .mermaid svg .active1,
+    .mermaid svg .active2,
+    .mermaid svg .active3 {
+      fill: var(--vscode-textCodeBlock-background) !important;
+      stroke: var(--vscode-panel-border, var(--vscode-textSeparator-foreground)) !important;
+    }
+    .mermaid svg .done0,
+    .mermaid svg .done1,
+    .mermaid svg .done2,
+    .mermaid svg .done3 {
+      fill: color-mix(
+        in srgb,
+        var(--vscode-editor-background) 60%,
+        var(--vscode-textSeparator-foreground) 40%
+      ) !important;
+      stroke: var(--vscode-textSeparator-foreground, #888) !important;
+    }
+    .mermaid svg .crit0,
+    .mermaid svg .crit1,
+    .mermaid svg .crit2,
+    .mermaid svg .crit3 {
+      fill: color-mix(
+        in srgb,
+        var(--vscode-errorForeground, #dc2626) 20%,
+        var(--vscode-editor-background) 80%
+      ) !important;
+      stroke: var(--vscode-errorForeground, #dc2626) !important;
+    }
+    .mermaid svg .today {
+      stroke: var(--vscode-textLink-foreground, #2563eb) !important;
     }
     blockquote {
       border-left: 4px solid var(--vscode-textSeparator-foreground);
