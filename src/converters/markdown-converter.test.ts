@@ -165,6 +165,24 @@ void test('markdownToHtml preserves centered div markup when raw html is disable
   assert.match(html, /<h1>Toolkit<\/h1>/);
 });
 
+void test('markdownToHtml groups linked badge images into a horizontal image row', () => {
+  const html = markdownToHtml(
+    [
+      '[![VS Code](https://img.shields.io/badge/vscode-blue)](https://code.visualstudio.com/)',
+      '[![License](https://img.shields.io/badge/license-green)](LICENSE)',
+      '[![Version](https://img.shields.io/badge/version-purple)](CHANGELOG.md)',
+    ].join('\n'),
+    '/tmp',
+    [],
+    true,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<p class="mdx-image-row">/);
+});
+
 void test('markdownToHtml escapes unsupported raw html when raw html is disabled', () => {
   const html = markdownToHtml('<script>alert(1)</script>', '/tmp', [], true, {
     allowRawHtml: false,

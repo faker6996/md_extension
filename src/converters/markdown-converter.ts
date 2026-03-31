@@ -133,6 +133,20 @@ function sanitizeRawHtml(content: string): string {
   });
 }
 
+function decorateImageRows(html: string): string {
+  return html.replace(/<p>([\s\S]*?)<\/p>/g, (match, inner: string) => {
+    const normalized = inner.trim();
+    const badgeRowPattern =
+      /^(?:\s*(?:<a\b[^>]*>\s*)?<img\b[^>]*>(?:\s*<\/a>)?\s*(?:<br>\s*)?)+$/i;
+
+    if (!badgeRowPattern.test(normalized)) {
+      return match;
+    }
+
+    return `<p class="mdx-image-row">${inner}</p>`;
+  });
+}
+
 function getNonceAttr(nonce?: string): string {
   return nonce ? ` nonce="${nonce}"` : '';
 }
@@ -190,7 +204,7 @@ export function markdownToHtml(
 
   const scriptNonceAttr = getNonceAttr(htmlOptions?.scriptNonce);
   const styleNonceAttr = getNonceAttr(htmlOptions?.styleNonce);
-  const htmlContent = markdownParserWithHtml.render(processedContent);
+  const htmlContent = decorateImageRows(markdownParserWithHtml.render(processedContent));
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
   const mermaidScriptTag = getMermaidScriptTag(htmlOptions?.scriptNonce);
@@ -414,6 +428,23 @@ export function markdownToHtml(
     }
     [align="left"] {
       text-align: left;
+    }
+    p.mdx-image-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+    p.mdx-image-row br {
+      display: none;
+    }
+    p.mdx-image-row a {
+      display: inline-flex;
+      align-items: center;
+    }
+    p.mdx-image-row img {
+      display: block;
     }
     details {
       margin: 1em 0;
