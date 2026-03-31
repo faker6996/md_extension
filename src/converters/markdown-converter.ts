@@ -189,7 +189,8 @@ export function markdownToHtml(
   // Process mermaid code blocks
   let processedContent = sanitizedContent.replace(
     /```mermaid\n([\s\S]*?)```/g,
-    '<pre class="mermaid">$1</pre>'
+    (_match, mermaidCode: string) =>
+      `<div class="mermaid" data-mdx-mermaid="true">${escapeHtml(mermaidCode.trim())}</div>`
   );
 
   // Process PlantUML blocks - convert to image using PlantUML server
@@ -256,7 +257,7 @@ export function markdownToHtml(
     // Dynamic theme detection for preview
     mermaidInit = `
     <script${scriptNonceAttr}>
-      const MERMAID_SELECTOR = 'pre.mermaid';
+      const MERMAID_SELECTOR = '.mermaid[data-mdx-mermaid="true"]';
       let renderVersion = 0;
       let rerenderTimer = null;
 
@@ -596,7 +597,7 @@ export function markdownToHtml(
       background: none;
       padding: 0;
     }
-    pre.mermaid {
+    .mermaid[data-mdx-mermaid="true"] {
       background: none;
       padding: 0;
       text-align: center;
@@ -814,9 +815,10 @@ export function markdownToHtml(
     details {
       margin: 1em 0;
       padding: 0.75em 1em;
-      border: 1px solid var(--vscode-textSeparator-foreground);
+      border: none;
       border-radius: 8px;
       background-color: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-textCodeBlock-background) 8%);
+      box-shadow: none;
     }
     details > summary {
       cursor: pointer;

@@ -183,6 +183,27 @@ void test('markdownToHtml groups linked badge images into a horizontal image row
   assert.match(html, /<p class="mdx-image-row">/);
 });
 
+void test('markdownToHtml escapes mermaid source so class diagrams with angle brackets survive HTML parsing', () => {
+  const html = markdownToHtml(
+    [
+      '```mermaid',
+      'classDiagram',
+      '  Animal <|-- Dog',
+      '```',
+    ].join('\n'),
+    '/tmp',
+    [],
+    true,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<div class="mermaid" data-mdx-mermaid="true">/);
+  assert.match(html, /Animal &lt;\|-- Dog/);
+  assert.match(html, /const MERMAID_SELECTOR = '\.mermaid\[data-mdx-mermaid="true"\]';/);
+});
+
 void test('markdownToHtml escapes unsupported raw html when raw html is disabled', () => {
   const html = markdownToHtml('<script>alert(1)</script>', '/tmp', [], true, {
     allowRawHtml: false,
