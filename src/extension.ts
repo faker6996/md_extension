@@ -11,6 +11,7 @@ import {
   quickExportPdf,
   setPreviewContext,
 } from './commands';
+import { disposeSharedExportBrowser } from './converters';
 import { logLine, initOutputChannel } from './logging';
 import { PdfViewerProvider } from './pdf-viewer';
 
@@ -60,6 +61,7 @@ export function activate(context: vscode.ExtensionContext): void {
   logLine('MDX Exporter Lite is now active.');
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
+  await disposeSharedExportBrowser();
   logLine('MDX Exporter Lite is now deactivated.');
 }

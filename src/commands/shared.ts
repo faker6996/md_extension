@@ -20,6 +20,8 @@ export interface MdxExporterConfig {
   headerTemplate: string;
   footerTemplate: string;
   styles: string[];
+  exportTheme: 'matchPreview' | 'light' | 'dark';
+  exportWidthMode: 'matchPreview' | 'fluid' | 'readable';
   jpegQuality: number;
 }
 
@@ -71,6 +73,11 @@ export function getConfig(): MdxExporterConfig {
       '<div style="font-size: 9px; margin: 0 auto;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
     ),
     styles: config.get<string[]>('styles', []),
+    exportTheme: config.get<'matchPreview' | 'light' | 'dark'>('exportTheme', 'matchPreview'),
+    exportWidthMode: config.get<'matchPreview' | 'fluid' | 'readable'>(
+      'exportWidthMode',
+      'matchPreview'
+    ),
     jpegQuality: config.get<number>('jpegQuality', 90),
   };
 }

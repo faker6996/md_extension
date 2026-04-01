@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { markdownToHtml } from './markdown-converter';
+import { findChromePath } from './chrome-path';
+import {
+  disposeSharedExportBrowser,
+  getSharedExportBrowserState,
+  htmlToImage,
+  htmlToPdf,
+} from './pdf-image-converter';
 import { markdownConverterTestUtils } from './markdown-docx-converter';
 
 void test('parseMarkdownBlocks parses markdown table with separator row', () => {
@@ -225,7 +235,7 @@ void test('markdownToHtml decorates preview code blocks with language label and 
   assert.match(html, /class="mdx-copy-button"/);
 });
 
-void test('markdownToHtml leaves export code blocks without preview copy controls', () => {
+void test('markdownToHtml keeps export code blocks in card layout without preview copy controls', () => {
   const html = markdownToHtml(
     [
       '```bash',
@@ -240,8 +250,48 @@ void test('markdownToHtml leaves export code blocks without preview copy control
     }
   );
 
+  assert.match(html, /<div class="mdx-code-block">/);
+  assert.match(html, /<div class="mdx-code-toolbar">/);
+  assert.match(html, /<span class="mdx-code-language">bash<\/span>/);
   assert.doesNotMatch(html, /<button type="button" class="mdx-copy-button"/);
-  assert.doesNotMatch(html, /<div class="mdx-code-toolbar">/);
+  assert.match(html, /<span class="mdx-code-toolbar-spacer" aria-hidden="true"><\/span>/);
+});
+
+void test('markdownToHtml supports export render profile with dark theme and fluid width', () => {
+  const html = markdownToHtml(
+    '# Export',
+    '/tmp',
+    [],
+    false,
+    {
+      renderTarget: 'pdf',
+      themeMode: 'dark',
+      contentWidth: 'fluid',
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<body data-mdx-render-target="pdf">/);
+  assert.match(html, /--vscode-editor-background: #0f172a;/);
+  assert.match(html, /max-width: none;/);
+});
+
+void test('markdownToHtml supports export render profile with readable width', () => {
+  const html = markdownToHtml(
+    '# Export',
+    '/tmp',
+    [],
+    false,
+    {
+      renderTarget: 'image',
+      themeMode: 'light',
+      contentWidth: 'readable',
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<body data-mdx-render-target="image">/);
+  assert.match(html, /max-width: 800px;/);
 });
 
 void test('markdownToHtml escapes mermaid source so class diagrams with angle brackets survive HTML parsing', () => {
@@ -272,3 +322,165 @@ void test('markdownToHtml escapes unsupported raw html when raw html is disabled
 
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
+
+const chromePath = findChromePath();
+
+void test(
+  'htmlToImage exports preview-grade markdown to png',
+  { skip: !chromePath },
+  async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdx-export-image-'));
+
+    try {
+      const html = markdownToHtml(
+        [
+          '<div align="center">',
+          '',
+          '[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://example.com)',
+          '[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://example.com)',
+          '',
+          '</div>',
+          '',
+          '```bash',
+          'npm run prisma:generate',
+          'npm run prisma:migrate',
+          'npm run dev',
+          '```',
+        ].join('\n'),
+        tempDir,
+        [],
+        false,
+        {
+          allowRawHtml: false,
+          renderTarget: 'image',
+          themeMode: 'dark',
+          contentWidth: 'fluid',
+        }
+      );
+
+      const outputPath = path.join(tempDir, 'smoke.png');
+      await htmlToImage(html, outputPath, {
+        baseDir: tempDir,
+        type: 'png',
+        fullPage: true,
+      });
+
+      assert.equal(fs.existsSync(outputPath), true);
+      assert.ok(fs.statSync(outputPath).size > 0);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+);
+
+void test(
+  'htmlToPdf exports preview-grade markdown to pdf',
+  { skip: !chromePath },
+  async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdx-export-pdf-'));
+
+    try {
+      const html = markdownToHtml(
+        [
+          '# Export Smoke Test',
+          '',
+          '> Preview-aligned export smoke test.',
+          '',
+          '```ts',
+          'console.log("mdx exporter");',
+          '```',
+        ].join('\n'),
+        tempDir,
+        [],
+        false,
+        {
+          allowRawHtml: false,
+          renderTarget: 'pdf',
+          themeMode: 'light',
+          contentWidth: 'readable',
+        }
+      );
+
+      const outputPath = path.join(tempDir, 'smoke.pdf');
+      await htmlToPdf(html, outputPath, {
+        baseDir: tempDir,
+        format: 'A4',
+        margin: '20mm',
+      });
+
+      assert.equal(fs.existsSync(outputPath), true);
+      assert.ok(fs.statSync(outputPath).size > 0);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+);
+
+void test(
+  'pdf and image export reuse the same shared browser session',
+  { skip: !chromePath },
+  async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdx-export-browser-reuse-'));
+
+    try {
+      await disposeSharedExportBrowser();
+      assert.deepEqual(getSharedExportBrowserState(), {
+        hasBrowser: false,
+        browserSerial: null,
+        activeUsers: 0,
+        hasIdleTimer: false,
+      });
+
+      const imageHtml = markdownToHtml('![Version](https://img.shields.io/badge/version-blue)', tempDir, [], false, {
+        allowRawHtml: false,
+        renderTarget: 'image',
+        themeMode: 'dark',
+        contentWidth: 'fluid',
+      });
+
+      const imagePath = path.join(tempDir, 'reuse.png');
+      await htmlToImage(imageHtml, imagePath, {
+        baseDir: tempDir,
+        type: 'png',
+        fullPage: true,
+      });
+
+      const imageState = getSharedExportBrowserState();
+      assert.equal(imageState.hasBrowser, true);
+      assert.notEqual(imageState.browserSerial, null);
+      assert.equal(imageState.activeUsers, 0);
+      assert.equal(imageState.hasIdleTimer, true);
+
+      const pdfHtml = markdownToHtml('# Reuse Browser', tempDir, [], false, {
+        allowRawHtml: false,
+        renderTarget: 'pdf',
+        themeMode: 'light',
+        contentWidth: 'readable',
+      });
+
+      const pdfPath = path.join(tempDir, 'reuse.pdf');
+      await htmlToPdf(pdfHtml, pdfPath, {
+        baseDir: tempDir,
+        format: 'A4',
+        margin: '20mm',
+      });
+
+      const pdfState = getSharedExportBrowserState();
+      assert.equal(pdfState.hasBrowser, true);
+      assert.equal(pdfState.browserSerial, imageState.browserSerial);
+      assert.equal(pdfState.activeUsers, 0);
+      assert.equal(pdfState.hasIdleTimer, true);
+
+      await disposeSharedExportBrowser();
+      assert.deepEqual(getSharedExportBrowserState(), {
+        hasBrowser: false,
+        browserSerial: null,
+        activeUsers: 0,
+        hasIdleTimer: false,
+      });
+    } finally {
+      await disposeSharedExportBrowser();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+);

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { DocxOptions, ImageOptions, PdfOptions } from '../converters';
+import type { RenderContentWidth, RenderThemeMode } from '../converters';
 import { htmlToImage, htmlToPdf, markdownToDocx, markdownToHtml } from '../converters';
 import { PdfViewerProvider } from '../pdf-viewer';
 import { logLine, showLogs } from '../logging';
@@ -143,6 +144,8 @@ async function runExport(
 ): Promise<void> {
   const content = fs.readFileSync(inputPath, 'utf-8');
   const baseDir = path.dirname(inputPath);
+  const themeMode = resolveExportThemeMode(config);
+  const contentWidth = resolveExportContentWidth(config);
 
   if (format === 'pdf') {
     const useWidePage =
@@ -153,6 +156,9 @@ async function runExport(
       );
     }
     const html = markdownToHtml(content, baseDir, config.styles, false, {
+      renderTarget: 'pdf',
+      themeMode,
+      contentWidth,
       wrapCodeBlocks: !useWidePage,
     });
     const pdfOptions: PdfOptions = {
@@ -171,7 +177,11 @@ async function runExport(
   }
 
   if (format === 'png' || format === 'jpeg') {
-    const html = markdownToHtml(content, baseDir, config.styles);
+    const html = markdownToHtml(content, baseDir, config.styles, false, {
+      renderTarget: 'image',
+      themeMode,
+      contentWidth,
+    });
     const imageOptions: ImageOptions = {
       baseDir,
       type: format,
@@ -187,6 +197,23 @@ async function runExport(
   const docxOptions: DocxOptions = { baseDir };
   logLine(`[docx] Converting with options: ${JSON.stringify(docxOptions)}`);
   await markdownToDocx(content, outputPath, docxOptions);
+}
+
+function resolveExportThemeMode(config: MdxExporterConfig): RenderThemeMode {
+  if (config.exportTheme === 'light' || config.exportTheme === 'dark') {
+    return config.exportTheme;
+  }
+
+  const activeThemeKind = vscode.window.activeColorTheme.kind;
+  return activeThemeKind === vscode.ColorThemeKind.Light ? 'light' : 'dark';
+}
+
+function resolveExportContentWidth(config: MdxExporterConfig): RenderContentWidth {
+  if (config.exportWidthMode === 'fluid' || config.exportWidthMode === 'readable') {
+    return config.exportWidthMode;
+  }
+
+  return 'fluid';
 }
 
 async function exportMarkdown(

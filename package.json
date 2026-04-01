@@ -293,6 +293,26 @@
           },
           "description": "List of custom CSS file paths to apply to exports."
         },
+        "mdxExporter.exportTheme": {
+          "type": "string",
+          "default": "matchPreview",
+          "enum": [
+            "matchPreview",
+            "light",
+            "dark"
+          ],
+          "description": "Theme used for PDF/PNG/JPEG export. 'matchPreview' follows the active VS Code theme."
+        },
+        "mdxExporter.exportWidthMode": {
+          "type": "string",
+          "default": "matchPreview",
+          "enum": [
+            "matchPreview",
+            "fluid",
+            "readable"
+          ],
+          "description": "Content width used for PDF/PNG/JPEG export. 'matchPreview' follows the preview-style fluid layout."
+        },
         "mdxExporter.allowRawHtmlInPreview": {
           "type": "boolean",
           "default": false,

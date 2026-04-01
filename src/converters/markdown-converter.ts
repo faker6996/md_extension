@@ -1,4 +1,5 @@
 import markdownIt from 'markdown-it';
+import type mdToken from 'markdown-it/lib/token.mjs';
 import { full as emoji } from 'markdown-it-emoji';
 import sanitizeHtml from 'sanitize-html';
 import texmath from 'markdown-it-texmath';
@@ -6,8 +7,150 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
 
-function createMarkdownParser(allowRawHtml: boolean): markdownIt {
-  return new markdownIt({
+type ImageRowItemRange = {
+  start: number;
+  end: number;
+};
+
+type ImageRowTokenMeta = {
+  mdxImageRowItems?: ImageRowItemRange[];
+};
+
+function getTokenImageRowItems(token: mdToken | undefined): ImageRowItemRange[] | null {
+  const meta = token?.meta as ImageRowTokenMeta | null | undefined;
+  return meta?.mdxImageRowItems ?? null;
+}
+
+function setTokenImageRowItems(token: mdToken, items: ImageRowItemRange[]): void {
+  const nextMeta: ImageRowTokenMeta = {
+    ...((token.meta as ImageRowTokenMeta | null | undefined) ?? {}),
+    mdxImageRowItems: items,
+  };
+  token.meta = nextMeta;
+}
+
+function isImageRowSeparatorToken(token: mdToken): boolean {
+  return (
+    token.type === 'softbreak' ||
+    token.type === 'hardbreak' ||
+    (token.type === 'text' && token.content.trim().length === 0)
+  );
+}
+
+function collectImageRowItemRanges(children: mdToken[] | null): ImageRowItemRange[] | null {
+  if (!children || children.length === 0) {
+    return null;
+  }
+
+  const items: ImageRowItemRange[] = [];
+  let index = 0;
+
+  while (index < children.length) {
+    while (index < children.length && isImageRowSeparatorToken(children[index])) {
+      index += 1;
+    }
+
+    if (index >= children.length) {
+      break;
+    }
+
+    if (children[index].type === 'image') {
+      items.push({ start: index, end: index + 1 });
+      index += 1;
+      continue;
+    }
+
+    if (
+      children[index].type === 'link_open' &&
+      children[index + 1]?.type === 'image' &&
+      children[index + 2]?.type === 'link_close'
+    ) {
+      items.push({ start: index, end: index + 3 });
+      index += 3;
+      continue;
+    }
+
+    return null;
+  }
+
+  return items.length >= 2 ? items : null;
+}
+
+function createHtmlInlineToken(referenceToken: mdToken, content: string): mdToken {
+  const tokenConstructor = referenceToken.constructor as new (
+    type: string,
+    tag: string,
+    nesting: 0
+  ) => mdToken;
+  const token = new tokenConstructor('html_inline', '', 0);
+  token.content = content;
+  return token;
+}
+
+function getImageRowItems(tokens: mdToken[], idx: number): ImageRowItemRange[] | null {
+  const paragraphOpen = tokens[idx];
+  if (!paragraphOpen || paragraphOpen.type !== 'paragraph_open') {
+    return null;
+  }
+
+  const cachedItems = getTokenImageRowItems(paragraphOpen);
+  if (cachedItems) {
+    return cachedItems;
+  }
+
+  const inlineToken = tokens[idx + 1];
+  const paragraphClose = tokens[idx + 2];
+  if (
+    !inlineToken ||
+    !paragraphClose ||
+    inlineToken.type !== 'inline' ||
+    paragraphClose.type !== 'paragraph_close'
+  ) {
+    return null;
+  }
+
+  const items = collectImageRowItemRanges(inlineToken.children);
+  if (!items) {
+    return null;
+  }
+
+  setTokenImageRowItems(paragraphOpen, items);
+  setTokenImageRowItems(inlineToken, items);
+  setTokenImageRowItems(paragraphClose, items);
+  return items;
+}
+
+function renderCodeBlockCard(content: string, language: string, includeCopyButton: boolean): string {
+  const escapedLanguage = escapeHtml(language);
+  const escapedCode = escapeHtml(content);
+  const codeClass = language ? ` class="language-${escapedLanguage}"` : '';
+  const languageLabel = language
+    ? `<span class="mdx-code-language">${escapedLanguage}</span>`
+    : '<span class="mdx-code-language"></span>';
+  const copyButton = includeCopyButton
+    ? [
+        '    <button type="button" class="mdx-copy-button" aria-label="Copy code block" title="Copy code block">',
+        '      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
+        '        <path d="M9 9h9v11H9z"></path>',
+        '        <path d="M6 4h9v2H8v11H6z"></path>',
+        '      </svg>',
+        '    </button>',
+      ].join('\n')
+    : '    <span class="mdx-code-toolbar-spacer" aria-hidden="true"></span>';
+
+  return [
+    '<div class="mdx-code-block">',
+    '  <div class="mdx-code-toolbar">',
+    `    ${languageLabel}`,
+    copyButton,
+    '  </div>',
+    `  <pre><code${codeClass}>${escapedCode}</code></pre>`,
+    '</div>',
+  ].join('\n');
+}
+
+function createMarkdownParser(allowRawHtml: boolean, renderTarget: RenderTarget): markdownIt {
+  const parser = new markdownIt({
     html: allowRawHtml,
     linkify: true,
     typographer: true,
@@ -18,15 +161,91 @@ function createMarkdownParser(allowRawHtml: boolean): markdownIt {
       engine: { renderToString: (tex: string) => `<span class="katex-inline">${tex}</span>` },
       delimiters: 'dollars',
     });
+
+  const defaultParagraphOpen =
+    parser.renderer.rules.paragraph_open ??
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  const defaultParagraphClose =
+    parser.renderer.rules.paragraph_close ??
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  const defaultFence =
+    parser.renderer.rules.fence ??
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  const defaultCodeBlock =
+    parser.renderer.rules.code_block ??
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+
+  parser.core.ruler.after('inline', 'mdx_image_rows', (state) => {
+    for (let index = 0; index < state.tokens.length; index += 1) {
+      const items = getImageRowItems(state.tokens, index);
+      if (!items) {
+        continue;
+      }
+
+      const inlineToken = state.tokens[index + 1];
+      const children = inlineToken.children;
+      if (!children || children.length === 0) {
+        continue;
+      }
+
+      const rowChildren: mdToken[] = [];
+      for (const item of items) {
+        rowChildren.push(createHtmlInlineToken(children[item.start], '<span class="mdx-image-row-item">'));
+        rowChildren.push(...children.slice(item.start, item.end));
+        rowChildren.push(createHtmlInlineToken(children[item.start], '</span>'));
+      }
+
+      inlineToken.children = rowChildren;
+    }
+  });
+
+  parser.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
+    if (getImageRowItems(tokens, idx)) {
+      return '<div class="mdx-image-row">';
+    }
+    return defaultParagraphOpen(tokens, idx, options, env, self);
+  };
+
+  parser.renderer.rules.paragraph_close = (tokens, idx, options, env, self) => {
+    if (getTokenImageRowItems(tokens[idx])) {
+      return '</div>';
+    }
+    return defaultParagraphClose(tokens, idx, options, env, self);
+  };
+
+  parser.renderer.rules.fence = (tokens, idx, options, env, self) => {
+    if (renderTarget !== 'preview' && renderTarget !== 'pdf' && renderTarget !== 'image') {
+      return defaultFence(tokens, idx, options, env, self);
+    }
+
+    const token = tokens[idx];
+    const language = token.info.trim().split(/\s+/)[0] ?? '';
+    return renderCodeBlockCard(token.content, language, renderTarget === 'preview');
+  };
+
+  parser.renderer.rules.code_block = (tokens, idx, options, env, self) => {
+    if (renderTarget !== 'preview' && renderTarget !== 'pdf' && renderTarget !== 'image') {
+      return defaultCodeBlock(tokens, idx, options, env, self);
+    }
+
+    return renderCodeBlockCard(tokens[idx].content, '', renderTarget === 'preview');
+  };
+
+  return parser;
 }
 
-const markdownParserWithHtml = createMarkdownParser(true);
+export type RenderThemeMode = 'light' | 'dark';
+export type RenderTarget = 'preview' | 'pdf' | 'image';
+export type RenderContentWidth = 'fluid' | 'readable';
 
 export interface MarkdownHtmlOptions {
   wrapCodeBlocks?: boolean;
   allowRawHtml?: boolean;
   scriptNonce?: string;
   styleNonce?: string;
+  renderTarget?: RenderTarget;
+  themeMode?: RenderThemeMode;
+  contentWidth?: RenderContentWidth;
 }
 
 // PlantUML encoding for server API
@@ -133,65 +352,154 @@ function sanitizeRawHtml(content: string): string {
   });
 }
 
-function decorateImageRows(html: string): string {
-  return html.replace(/<p>([\s\S]*?)<\/p>/g, (match, inner: string) => {
-    const normalized = inner.trim();
-    const badgeItemPattern = /(?:<a\b[^>]*>\s*)?<img\b[^>]*>(?:\s*<\/a>)?/gi;
-    const items = Array.from(normalized.matchAll(badgeItemPattern), (matchItem) => matchItem[0].trim());
-    const remainder = normalized
-      .replace(badgeItemPattern, '')
-      .replace(/<br\s*\/?>/gi, '')
-      .trim();
-
-    if (items.length < 2 || remainder.length > 0) {
-      return match;
-    }
-
-    const rowContent = items
-      .map((item) => `<span class="mdx-image-row-item">${item}</span>`)
-      .join('');
-
-    return `<div class="mdx-image-row">${rowContent}</div>`;
-  });
+interface StaticThemePalette {
+  background: string;
+  foreground: string;
+  blockQuoteBackground: string;
+  codeBackground: string;
+  link: string;
+  separator: string;
+  panelBorder: string;
+  description: string;
+  inactiveSelectionBackground: string;
+  error: string;
+  success: string;
+  warning: string;
 }
 
-function extractCodeLanguage(codeAttributes: string): string {
-  const classMatch = codeAttributes.match(/\bclass="([^"]+)"/i);
-  if (!classMatch) {
-    return '';
+function getStaticThemePalette(themeMode: RenderThemeMode): StaticThemePalette {
+  if (themeMode === 'dark') {
+    return {
+      background: '#0f172a',
+      foreground: '#e5e7eb',
+      blockQuoteBackground: 'rgba(30, 41, 59, 0.72)',
+      codeBackground: 'rgba(30, 41, 59, 0.92)',
+      link: '#93c5fd',
+      separator: '#475569',
+      panelBorder: '#4b5563',
+      description: '#cbd5e1',
+      inactiveSelectionBackground: '#334155',
+      error: '#f87171',
+      success: '#4ade80',
+      warning: '#fbbf24',
+    };
   }
 
-  const classes = classMatch[1].split(/\s+/);
-  const languageClass = classes.find((value) => value.startsWith('language-'));
-  return languageClass ? languageClass.slice('language-'.length) : '';
+  return {
+    background: '#ffffff',
+    foreground: '#1f2937',
+    blockQuoteBackground: '#f8fafc',
+    codeBackground: '#f5f5f5',
+    link: '#2563eb',
+    separator: '#d1d5db',
+    panelBorder: '#cbd5e1',
+    description: '#475569',
+    inactiveSelectionBackground: '#dbeafe',
+    error: '#dc2626',
+    success: '#16a34a',
+    warning: '#d97706',
+  };
 }
 
-function decorateCodeBlocks(html: string, isPreview: boolean): string {
-  if (!isPreview) {
-    return html;
-  }
+function buildStaticMermaidConfig(themeMode: RenderThemeMode): Record<string, unknown> {
+  const palette = getStaticThemePalette(themeMode);
+  const darkMode = themeMode === 'dark';
 
-  return html.replace(/<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g, (_match, codeAttributes: string, codeHtml: string) => {
-    const language = extractCodeLanguage(codeAttributes);
-    const languageLabel = language
-      ? `<span class="mdx-code-language">${escapeHtml(language)}</span>`
-      : '<span class="mdx-code-language"></span>';
-
-    return [
-      '<div class="mdx-code-block">',
-      '  <div class="mdx-code-toolbar">',
-      `    ${languageLabel}`,
-      '    <button type="button" class="mdx-copy-button" aria-label="Copy code block" title="Copy code block">',
-      '      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
-      '        <path d="M9 9h9v11H9z"></path>',
-      '        <path d="M6 4h9v2H8v11H6z"></path>',
-      '      </svg>',
-      '    </button>',
-      '  </div>',
-      `  <pre><code${codeAttributes}>${codeHtml}</code></pre>`,
-      '</div>',
-    ].join('\n');
-  });
+  return {
+    startOnLoad: true,
+    theme: 'base',
+    securityLevel: 'loose',
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    themeVariables: {
+      darkMode,
+      background: palette.background,
+      textColor: palette.foreground,
+      primaryColor: palette.codeBackground,
+      primaryTextColor: palette.foreground,
+      primaryBorderColor: palette.panelBorder,
+      secondaryColor: palette.blockQuoteBackground,
+      secondaryTextColor: palette.foreground,
+      secondaryBorderColor: palette.panelBorder,
+      tertiaryColor: palette.background,
+      tertiaryTextColor: palette.foreground,
+      tertiaryBorderColor: palette.panelBorder,
+      lineColor: palette.panelBorder,
+      defaultLinkColor: palette.panelBorder,
+      edgeLabelBackground: palette.background,
+      clusterBkg: palette.blockQuoteBackground,
+      clusterBorder: palette.panelBorder,
+      nodeBkg: palette.codeBackground,
+      mainBkg: palette.codeBackground,
+      nodeTextColor: palette.foreground,
+      nodeBorder: palette.panelBorder,
+      actorBkg: palette.codeBackground,
+      actorTextColor: palette.foreground,
+      actorBorder: palette.panelBorder,
+      actorLineColor: palette.panelBorder,
+      signalColor: palette.panelBorder,
+      signalTextColor: palette.foreground,
+      labelBoxBkgColor: palette.background,
+      labelBoxBorderColor: palette.panelBorder,
+      labelTextColor: palette.foreground,
+      loopTextColor: palette.foreground,
+      noteBkgColor: palette.blockQuoteBackground,
+      noteTextColor: palette.foreground,
+      noteBorderColor: palette.panelBorder,
+      activationBkgColor: palette.inactiveSelectionBackground,
+      activationBorderColor: palette.panelBorder,
+      sequenceNumberColor: palette.description,
+      classText: palette.foreground,
+      relationColor: palette.panelBorder,
+      relationLabelBackground: palette.background,
+      relationLabelColor: palette.foreground,
+      sectionBkgColor: palette.blockQuoteBackground,
+      sectionBkgColor2: palette.codeBackground,
+      altSectionBkgColor: palette.background,
+      gridColor: palette.separator,
+      taskBorderColor: palette.panelBorder,
+      taskBkgColor: palette.inactiveSelectionBackground,
+      taskTextColor: palette.foreground,
+      taskTextDarkColor: palette.foreground,
+      taskTextLightColor: palette.foreground,
+      taskTextOutsideColor: palette.foreground,
+      taskTextClickableColor: palette.link,
+      activeTaskBorderColor: palette.link,
+      activeTaskBkgColor: palette.codeBackground,
+      doneTaskBorderColor: palette.panelBorder,
+      doneTaskBkgColor: palette.description,
+      critBorderColor: palette.error,
+      critBkgColor: palette.warning,
+      todayLineColor: palette.link,
+      fillType0: palette.codeBackground,
+      fillType1: palette.blockQuoteBackground,
+      fillType2: palette.background,
+      fillType3: palette.inactiveSelectionBackground,
+      fillType4: palette.blockQuoteBackground,
+      fillType5: palette.background,
+      fillType6: palette.link,
+      fillType7: palette.success,
+      pie1: palette.link,
+      pie2: palette.codeBackground,
+      pie3: palette.blockQuoteBackground,
+      pie4: palette.panelBorder,
+      pie5: palette.description,
+      pie6: palette.background,
+      pie7: palette.link,
+      pie8: palette.codeBackground,
+      pie9: palette.blockQuoteBackground,
+      pieTitleTextColor: palette.foreground,
+      pieSectionTextColor: palette.foreground,
+      ganttTaskBkgColor: palette.link,
+      ganttTaskTextColor: palette.foreground,
+      ganttTaskBorderColor: palette.panelBorder,
+      ganttActiveTaskBkgColor: palette.blockQuoteBackground,
+      ganttActiveTaskBorderColor: palette.link,
+      ganttActiveTaskTextColor: palette.foreground,
+      ganttDoneTaskBkgColor: palette.description,
+      ganttDoneTaskBorderColor: palette.panelBorder,
+      ganttDoneTaskTextColor: palette.foreground,
+    },
+  };
 }
 
 function getNonceAttr(nonce?: string): string {
@@ -230,6 +538,10 @@ export function markdownToHtml(
   isPreview: boolean = false,
   htmlOptions?: MarkdownHtmlOptions
 ): string {
+  const renderTarget = htmlOptions?.renderTarget ?? (isPreview ? 'preview' : 'pdf');
+  const themeMode = htmlOptions?.themeMode ?? 'light';
+  const contentWidth = htmlOptions?.contentWidth ?? (isPreview ? 'fluid' : 'readable');
+
   // Process mermaid code blocks
   let processedContent = content.replace(
     /```mermaid\n([\s\S]*?)```/g,
@@ -254,10 +566,8 @@ export function markdownToHtml(
 
   const scriptNonceAttr = getNonceAttr(htmlOptions?.scriptNonce);
   const styleNonceAttr = getNonceAttr(htmlOptions?.styleNonce);
-  const htmlContent = decorateCodeBlocks(
-    decorateImageRows(markdownParserWithHtml.render(processedContent)),
-    isPreview
-  );
+  const parser = createMarkdownParser(true, renderTarget);
+  const htmlContent = parser.render(processedContent);
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
   const mermaidScriptTag = getMermaidScriptTag(htmlOptions?.scriptNonce);
@@ -280,15 +590,21 @@ export function markdownToHtml(
   // Define CSS variables based on mode
   let cssVariables = '';
   if (!isPreview) {
-    // Default light theme for PDF/Export
+    const palette = getStaticThemePalette(themeMode);
     cssVariables = `
     :root {
-      --vscode-foreground: #333;
-      --vscode-editor-background: #fff;
-      --vscode-textBlockQuote-background: #f9f9f9;
-      --vscode-textCodeBlock-background: #f5f5f5;
-      --vscode-textLink-foreground: #0066cc;
-      --vscode-textSeparator-foreground: #ddd;
+      --vscode-foreground: ${palette.foreground};
+      --vscode-editor-background: ${palette.background};
+      --vscode-textBlockQuote-background: ${palette.blockQuoteBackground};
+      --vscode-textCodeBlock-background: ${palette.codeBackground};
+      --vscode-textLink-foreground: ${palette.link};
+      --vscode-textSeparator-foreground: ${palette.separator};
+      --vscode-panel-border: ${palette.panelBorder};
+      --vscode-descriptionForeground: ${palette.description};
+      --vscode-editor-inactiveSelectionBackground: ${palette.inactiveSelectionBackground};
+      --vscode-errorForeground: ${palette.error};
+      --vscode-testing-iconPassed: ${palette.success};
+      --vscode-testing-iconQueued: ${palette.warning};
     }`;
   } else {
     // For Preview, we rely on VS Code's injected variables
@@ -646,7 +962,8 @@ export function markdownToHtml(
       });
     </script>`;
   } else {
-    mermaidInit = `<script${scriptNonceAttr}>mermaid.initialize({startOnLoad:true, theme: 'default'});</script>`;
+    const exportMermaidConfig = JSON.stringify(buildStaticMermaidConfig(themeMode));
+    mermaidInit = `<script${scriptNonceAttr}>mermaid.initialize(${exportMermaidConfig});</script>`;
   }
 
   const wrapCodeBlocks = isPreview
@@ -673,7 +990,7 @@ export function markdownToHtml(
       line-height: 1.6;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
-      max-width: ${isPreview ? 'none' : '800px'};
+      max-width: ${contentWidth === 'fluid' ? 'none' : '800px'};
       margin: 0 auto;
       padding: 20px;
     }
@@ -721,6 +1038,12 @@ export function markdownToHtml(
     .mdx-code-language {
       min-height: 1em;
       font-family: var(--vscode-editor-font-family, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
+    }
+    .mdx-code-toolbar-spacer {
+      display: inline-flex;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
     }
     .mdx-copy-button {
       display: inline-flex;
@@ -1019,7 +1342,7 @@ export function markdownToHtml(
   ${mermaidScriptTag}
   ${mermaidInit}
 </head>
-<body>
+<body data-mdx-render-target="${renderTarget}">
 ${htmlContent}
 </body>
 </html>`;
