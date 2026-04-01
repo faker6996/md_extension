@@ -1,9 +1,13 @@
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import { findChromePath } from '../chrome-path';
-import { encodePlantUml, escapeHtml, getMermaidScriptTag } from '../markdown-converter';
+import { buildPlantUmlSvgUrl, escapeHtml, getMermaidScriptTag } from '../markdown-converter';
 import type { DiagramImage } from './types';
 
-function buildDiagramHtml(diagramType: 'mermaid' | 'plantuml', code: string): { html: string; selector: string } {
+function buildDiagramHtml(
+  diagramType: 'mermaid' | 'plantuml',
+  code: string,
+  plantUmlServerUrl?: string
+): { html: string; selector: string } | null {
   if (diagramType === 'mermaid') {
     const mermaidScriptTag = getMermaidScriptTag();
     const html = `<!DOCTYPE html>
@@ -27,8 +31,10 @@ function buildDiagramHtml(diagramType: 'mermaid' | 'plantuml', code: string): { 
     return { html, selector: '#diagram svg' };
   }
 
-  const plantUmlSource = /@startuml[\s\S]*@enduml/.test(code) ? code : `@startuml\n${code}\n@enduml`;
-  const encoded = encodePlantUml(plantUmlSource.trim());
+  const plantUmlSvgUrl = buildPlantUmlSvgUrl(code, plantUmlServerUrl);
+  if (!plantUmlSvgUrl) {
+    return null;
+  }
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -40,7 +46,7 @@ function buildDiagramHtml(diagramType: 'mermaid' | 'plantuml', code: string): { 
   </style>
 </head>
 <body>
-  <img id="diagram" src="https://www.plantuml.com/plantuml/svg/${encoded}" alt="PlantUML Diagram" />
+  <img id="diagram" src="${escapeHtml(plantUmlSvgUrl)}" alt="PlantUML Diagram" />
 </body>
 </html>`;
   return { html, selector: '#diagram' };
@@ -62,14 +68,16 @@ async function waitForDiagram(page: Page, diagramType: 'mermaid' | 'plantuml', s
 export async function renderDiagramToPngBuffer(
   diagramType: 'mermaid' | 'plantuml',
   code: string,
-  sharedBrowser?: Browser
+  sharedBrowser?: Browser,
+  browserExecutablePath?: string,
+  plantUmlServerUrl?: string
 ): Promise<DiagramImage | null> {
   const ownsBrowser = !sharedBrowser;
   let browser: Browser | null = sharedBrowser ?? null;
 
   try {
     if (ownsBrowser) {
-      const chromePath = findChromePath();
+      const chromePath = findChromePath(browserExecutablePath);
       if (!chromePath) {
         throw new Error(
           'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge.'
@@ -88,7 +96,11 @@ export async function renderDiagramToPngBuffer(
 
     const page = await browser.newPage();
     const padding = 8;
-    const { html, selector } = buildDiagramHtml(diagramType, code);
+    const diagramHtml = buildDiagramHtml(diagramType, code, plantUmlServerUrl);
+    if (!diagramHtml) {
+      return null;
+    }
+    const { html, selector } = diagramHtml;
     const baseViewport = { width: 1600, height: 1200 };
     await page.setViewport(baseViewport);
     await page.setContent(html, { waitUntil: 'networkidle0' });

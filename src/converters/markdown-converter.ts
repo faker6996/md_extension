@@ -243,6 +243,7 @@ export interface MarkdownHtmlOptions {
   allowRawHtml?: boolean;
   scriptNonce?: string;
   styleNonce?: string;
+  plantUmlServerUrl?: string;
   renderTarget?: RenderTarget;
   themeMode?: RenderThemeMode;
   contentWidth?: RenderContentWidth;
@@ -282,6 +283,36 @@ export function escapeHtml(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function normalizePlantUmlServerUrl(serverUrl?: string): string | null {
+  const normalized = serverUrl?.trim() ?? '';
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.endsWith('/svg')) {
+    return normalized.slice(0, -4).replace(/\/+$/, '');
+  }
+
+  if (normalized.endsWith('/png')) {
+    return normalized.slice(0, -4).replace(/\/+$/, '');
+  }
+
+  return normalized.replace(/\/+$/, '');
+}
+
+export function buildPlantUmlSvgUrl(code: string, serverUrl?: string): string | null {
+  const normalizedServerUrl = normalizePlantUmlServerUrl(serverUrl);
+  if (!normalizedServerUrl) {
+    return null;
+  }
+
+  const plantUmlSource = /@startuml[\s\S]*@enduml/.test(code)
+    ? code
+    : `@startuml\n${code}\n@enduml`;
+  const encoded = encodePlantUml(plantUmlSource.trim());
+  return `${normalizedServerUrl}/svg/${encoded}`;
 }
 
 function sanitizeRawHtml(content: string): string {
@@ -549,13 +580,18 @@ export function markdownToHtml(
       `<div class="mermaid" data-mdx-mermaid="true">${escapeHtml(mermaidCode.trim())}</div>`
   );
 
-  // Process PlantUML blocks - convert to image using PlantUML server
+  const plantUmlServerUrl = htmlOptions?.plantUmlServerUrl ?? 'https://www.plantuml.com/plantuml';
+
+  // Process PlantUML blocks - convert to image using PlantUML server or fall back to source blocks.
   processedContent = processedContent.replace(
     /@startuml\n?([\s\S]*?)@enduml/g,
     (_match, umlCode: string) => {
-      // Encode UML for PlantUML server URL
-      const encoded = encodePlantUml(umlCode.trim());
-      return `<img src="https://www.plantuml.com/plantuml/svg/${encoded}" alt="PlantUML Diagram" />`;
+      const plantUmlSource = `@startuml\n${umlCode.trim()}\n@enduml`;
+      const plantUmlSvgUrl = buildPlantUmlSvgUrl(plantUmlSource, plantUmlServerUrl);
+      if (!plantUmlSvgUrl) {
+        return `<pre><code class="language-plantuml">${escapeHtml(plantUmlSource)}</code></pre>`;
+      }
+      return `<img src="${escapeHtml(plantUmlSvgUrl)}" alt="PlantUML Diagram" />`;
     }
   );
 

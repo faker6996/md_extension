@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { markdownToHtml } from './markdown-converter';
-import { findChromePath } from './chrome-path';
+import { findChromePath, resolveChromePathCandidates } from './chrome-path';
+import { docxToMarkdown, markdownToDocx } from './index';
 import {
   disposeSharedExportBrowser,
   getSharedExportBrowserState,
@@ -122,6 +123,29 @@ void test('getImageDimensions returns null for unsupported buffer', () => {
   assert.equal(markdownConverterTestUtils.getImageDimensions(Buffer.from([0x01, 0x02, 0x03])), null);
 });
 
+void test('findChromePath prefers a configured executable path', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdx-browser-path-'));
+  const executableName = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+  const executablePath = path.join(tempDir, executableName);
+
+  try {
+    fs.writeFileSync(executablePath, process.platform === 'win32' ? '' : '#!/bin/sh\nexit 0\n', 'utf-8');
+    if (process.platform !== 'win32') {
+      fs.chmodSync(executablePath, 0o755);
+    }
+
+    assert.equal(findChromePath(executablePath), executablePath);
+    assert.equal(findChromePath(`"${executablePath}"`), executablePath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+void test('resolveChromePathCandidates includes preferred path before fallback paths', () => {
+  const candidates = resolveChromePathCandidates('/tmp/custom-chrome');
+  assert.equal(candidates[0], '/tmp/custom-chrome');
+});
+
 void test('markdownToHtml injects script/style nonce attributes when provided', () => {
   const html = markdownToHtml('inline $x$', '/tmp', [], true, {
     scriptNonce: 'nonce-123',
@@ -130,6 +154,24 @@ void test('markdownToHtml injects script/style nonce attributes when provided', 
 
   assert.match(html, /<style nonce="nonce-123">/);
   assert.match(html, /<script[^>]*nonce="nonce-123"/);
+});
+
+void test('markdownToHtml uses configured PlantUML server URL', () => {
+  const html = markdownToHtml('@startuml\nAlice -> Bob\n@enduml', '/tmp', [], false, {
+    plantUmlServerUrl: 'https://plantuml.example.internal/plantuml',
+  });
+
+  assert.match(html, /https:\/\/plantuml\.example\.internal\/plantuml\/svg\//);
+  assert.doesNotMatch(html, /www\.plantuml\.com/);
+});
+
+void test('markdownToHtml falls back to source block when PlantUML server URL is empty', () => {
+  const html = markdownToHtml('@startuml\nAlice -> Bob\n@enduml', '/tmp', [], false, {
+    plantUmlServerUrl: '',
+  });
+
+  assert.match(html, /<pre><code class="language-plantuml">@startuml/);
+  assert.doesNotMatch(html, /plantuml\/svg\//);
 });
 
 void test('markdownToHtml preserves safe details markup when raw html is disabled', () => {
@@ -321,6 +363,60 @@ void test('markdownToHtml escapes unsupported raw html when raw html is disabled
   });
 
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+void test('markdownToDocx writes a DOCX file with ZIP signature', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdx-docx-smoke-'));
+
+  try {
+    const outputPath = path.join(tempDir, 'smoke.docx');
+    await markdownToDocx(
+      [
+        '# DOCX Smoke Test',
+        '',
+        'A short paragraph with **bold** text and `inline code`.',
+        '',
+        '- Alpha',
+        '- Beta',
+      ].join('\n'),
+      outputPath,
+      { baseDir: tempDir, plantUmlServerUrl: '' }
+    );
+
+    assert.equal(fs.existsSync(outputPath), true);
+    const buffer = fs.readFileSync(outputPath);
+    assert.ok(buffer.length > 0);
+    assert.equal(buffer[0], 0x50);
+    assert.equal(buffer[1], 0x4b);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+void test('markdownToDocx and docxToMarkdown round-trip core text content', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdx-docx-roundtrip-'));
+
+  try {
+    const outputPath = path.join(tempDir, 'roundtrip.docx');
+    await markdownToDocx(
+      [
+        '# Roundtrip Title',
+        '',
+        'Paragraph for DOCX roundtrip.',
+        '',
+        '> Blockquote line',
+      ].join('\n'),
+      outputPath,
+      { baseDir: tempDir, plantUmlServerUrl: '' }
+    );
+
+    const markdown = await docxToMarkdown(outputPath);
+    assert.match(markdown, /Roundtrip Title/);
+    assert.match(markdown, /Paragraph for DOCX roundtrip\./);
+    assert.match(markdown, /Blockquote line/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 const chromePath = findChromePath();

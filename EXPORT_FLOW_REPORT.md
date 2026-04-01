@@ -12,13 +12,17 @@ Make exported output, especially `PDF`, `PNG`, and `JPEG`, match the preview lay
 - PDF and image export now share the same render-profile-aware `markdownToHtml()` renderer, theme model, and width model.
 - DOCX export now supports more HTML-style alignment and inline image badge patterns than before.
 - PDF/PNG/JPEG export reuses a shared browser instance with idle shutdown, so repeated exports avoid unnecessary browser startup cost.
+- Browser detection now supports explicit executable-path override, common environment variables, fixed install paths, and `PATH` lookup.
+- PlantUML rendering can now point to a self-hosted server, or be disabled so source blocks stay visible instead of calling the public service.
+- Export image snapshots now have committed visual baselines with pixel-diff regression tests for light and dark themes.
+- DOCX export now has smoke coverage plus a basic `Markdown -> DOCX -> Markdown` round-trip test for core text content.
 
 ### Structural Problems
 
 1. Preview remains interactive while exported files are intentionally non-interactive, so parity is high but not a literal DOM clone.
 2. DOCX export is semantic, not WYSIWYG, so it should not be treated as the “preview-matching” target.
-3. Fidelity tests now cover HTML structure and export smoke paths, but they are not pixel-diff visual regression tests yet.
-4. PlantUML export still depends on the public PlantUML server.
+3. Visual regression currently covers export snapshots, not the actual VS Code webview surface, so preview-specific host behavior is still inferred via the shared renderer.
+4. Full offline PlantUML rendering is still not built in; the current solution is self-hosted server configuration or source fallback.
 
 ## Recommended Phases
 
@@ -82,3 +86,7 @@ Status: Implemented in this turn.
 - Added Phase 5 smoke tests that generate real `PNG` and `PDF` exports from preview-grade HTML and verify the files are produced successfully.
 - Added shared browser reuse with idle shutdown for PDF/PNG/JPEG export, reducing repeated Puppeteer startup overhead.
 - Added a dedicated export test that verifies consecutive `PNG` and `PDF` exports reuse the same shared browser session before idle shutdown.
+- Added configurable browser executable override and stronger Chrome/Chromium/Edge auto-detection across PDF/image/DOCX-related render paths.
+- Added configurable PlantUML server routing plus fallback-to-source behavior so preview/export/DOCX flows are no longer hard-wired to the public PlantUML server.
+- Added a visual regression fixture, committed light/dark PNG baselines, pixel-diff snapshot tests, and a baseline update script for export rendering.
+- Added DOCX smoke tests and a basic round-trip assertion so the Word export/import path is now exercised end-to-end in CI-style runs.

@@ -22,9 +22,9 @@ export async function exportDocxToPdf(resourceUri?: vscode.Uri): Promise<void> {
   const config = getConfig();
   logLine(`--- DOCX to PDF @ ${new Date().toISOString()} ---`);
 
-  if (!checkChromeAvailable()) {
+  if (!checkChromeAvailable(config.browserExecutablePath)) {
     logLine('[chrome] not found');
-    await showChromeInstallInstructions();
+    await showChromeInstallInstructions(config.browserExecutablePath);
     return;
   }
 
@@ -65,6 +65,7 @@ export async function exportDocxToPdf(resourceUri?: vscode.Uri): Promise<void> {
           format: config.pdfPageFormat,
           margin: config.pdfMargin,
           baseDir: path.dirname(inputPath),
+          browserExecutablePath: config.browserExecutablePath,
         };
         await htmlToPdf(html, outputPath, pdfOptions);
         showSuccessMessage(outputPath);

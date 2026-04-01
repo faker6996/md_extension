@@ -20,6 +20,8 @@ export interface MdxExporterConfig {
   headerTemplate: string;
   footerTemplate: string;
   styles: string[];
+  browserExecutablePath: string;
+  plantUmlServerUrl: string;
   exportTheme: 'matchPreview' | 'light' | 'dark';
   exportWidthMode: 'matchPreview' | 'fluid' | 'readable';
   jpegQuality: number;
@@ -73,6 +75,11 @@ export function getConfig(): MdxExporterConfig {
       '<div style="font-size: 9px; margin: 0 auto;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
     ),
     styles: config.get<string[]>('styles', []),
+    browserExecutablePath: expandUserPath(config.get<string>('browserExecutablePath', '')),
+    plantUmlServerUrl: config.get<string>(
+      'plantUmlServerUrl',
+      'https://www.plantuml.com/plantuml'
+    ),
     exportTheme: config.get<'matchPreview' | 'light' | 'dark'>('exportTheme', 'matchPreview'),
     exportWidthMode: config.get<'matchPreview' | 'fluid' | 'readable'>(
       'exportWidthMode',
@@ -179,13 +186,14 @@ export async function showSaveDialog(
   });
 }
 
-export function checkChromeAvailable(): boolean {
-  return findChromePath() !== null;
+export function checkChromeAvailable(browserExecutablePath?: string): boolean {
+  return findChromePath(browserExecutablePath) !== null;
 }
 
-export async function showChromeInstallInstructions(): Promise<void> {
-  const message =
-    'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge for PDF export.';
+export async function showChromeInstallInstructions(browserExecutablePath?: string): Promise<void> {
+  const message = browserExecutablePath
+    ? `Configured browser path was not found or is not executable: ${browserExecutablePath}`
+    : 'Chrome/Chromium not found. Please install Google Chrome, Chromium, or Microsoft Edge for PDF export.';
   const choice = await vscode.window.showErrorMessage(message, 'Download Chrome', 'Dismiss');
 
   if (choice === 'Download Chrome') {

@@ -50,7 +50,7 @@ export async function markdownToDocx(
   let canRenderDiagrams = hasDiagrams;
 
   if (hasDiagrams) {
-    const chromePath = findChromePath();
+    const chromePath = findChromePath(options.browserExecutablePath);
     if (chromePath) {
       diagramBrowser = await puppeteer.launch({
         executablePath: chromePath,
@@ -106,7 +106,9 @@ export async function markdownToDocx(
               const image = await renderDiagramToPngBuffer(
                 block.diagramType,
                 block.content,
-                diagramBrowser ?? undefined
+                diagramBrowser ?? undefined,
+                options.browserExecutablePath,
+                options.plantUmlServerUrl
               );
               if (image) {
                 const marker = encodeDiagramMarker(block.diagramType, block.content);

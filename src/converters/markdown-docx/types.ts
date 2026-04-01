@@ -1,5 +1,7 @@
 export interface DocxOptions {
   baseDir: string;
+  browserExecutablePath?: string;
+  plantUmlServerUrl?: string;
 }
 
 export type HorizontalAlignment = 'left' | 'center' | 'right';

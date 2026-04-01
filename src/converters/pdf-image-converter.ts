@@ -5,6 +5,7 @@ export interface PdfOptions {
   format: PaperFormat;
   margin: string;
   baseDir: string;
+  browserExecutablePath?: string;
   displayHeaderFooter?: boolean;
   headerTemplate?: string;
   footerTemplate?: string;
@@ -14,6 +15,7 @@ export interface PdfOptions {
 
 export interface ImageOptions {
   baseDir: string;
+  browserExecutablePath?: string;
   type: 'png' | 'jpeg';
   quality?: number; // 0-100, jpeg only
   fullPage?: boolean;
@@ -124,8 +126,8 @@ function releaseSharedBrowser(browser: Browser): void {
   scheduleSharedBrowserClose();
 }
 
-async function createExportPage(): Promise<{ browser: Browser; page: Page }> {
-  const chromePath = findChromePath();
+async function createExportPage(browserExecutablePath?: string): Promise<{ browser: Browser; page: Page }> {
+  const chromePath = findChromePath(browserExecutablePath);
 
   if (!chromePath) {
     throw new Error(
@@ -218,7 +220,7 @@ export async function htmlToPdf(
   let page: Page | null = null;
 
   try {
-    const resources = await createExportPage();
+    const resources = await createExportPage(options.browserExecutablePath);
     browser = resources.browser;
     page = resources.page;
 
@@ -279,7 +281,7 @@ export async function htmlToImage(
   let page: Page | null = null;
 
   try {
-    const resources = await createExportPage();
+    const resources = await createExportPage(options.browserExecutablePath);
     browser = resources.browser;
     page = resources.page;
     await page.setViewport({ width: 1200, height: 800 });

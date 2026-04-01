@@ -159,12 +159,14 @@ async function runExport(
       renderTarget: 'pdf',
       themeMode,
       contentWidth,
+      plantUmlServerUrl: config.plantUmlServerUrl,
       wrapCodeBlocks: !useWidePage,
     });
     const pdfOptions: PdfOptions = {
       format: useWidePage ? config.widePageFormat : config.pdfPageFormat,
       margin: useWidePage ? config.widePageMargin : config.pdfMargin,
       baseDir,
+      browserExecutablePath: config.browserExecutablePath,
       displayHeaderFooter: config.displayHeaderFooter,
       headerTemplate: config.headerTemplate,
       footerTemplate: config.footerTemplate,
@@ -181,9 +183,11 @@ async function runExport(
       renderTarget: 'image',
       themeMode,
       contentWidth,
+      plantUmlServerUrl: config.plantUmlServerUrl,
     });
     const imageOptions: ImageOptions = {
       baseDir,
+      browserExecutablePath: config.browserExecutablePath,
       type: format,
       quality: format === 'jpeg' ? config.jpegQuality : undefined,
       fullPage: true,
@@ -194,7 +198,11 @@ async function runExport(
     return;
   }
 
-  const docxOptions: DocxOptions = { baseDir };
+  const docxOptions: DocxOptions = {
+    baseDir,
+    browserExecutablePath: config.browserExecutablePath,
+    plantUmlServerUrl: config.plantUmlServerUrl,
+  };
   logLine(`[docx] Converting with options: ${JSON.stringify(docxOptions)}`);
   await markdownToDocx(content, outputPath, docxOptions);
 }
@@ -224,9 +232,9 @@ async function exportMarkdown(
   const config = getConfig();
   logLine(`--- Export ${format.toUpperCase()} @ ${new Date().toISOString()} ---`);
 
-  if (format === 'pdf' && !checkChromeAvailable()) {
+  if (format === 'pdf' && !checkChromeAvailable(config.browserExecutablePath)) {
     logLine('[chrome] not found');
-    await showChromeInstallInstructions();
+    await showChromeInstallInstructions(config.browserExecutablePath);
     return;
   }
 
