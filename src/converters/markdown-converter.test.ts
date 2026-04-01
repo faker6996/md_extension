@@ -180,7 +180,68 @@ void test('markdownToHtml groups linked badge images into a horizontal image row
     }
   );
 
-  assert.match(html, /<p class="mdx-image-row">/);
+  assert.match(html, /<div class="mdx-image-row">/);
+  assert.match(html, /<span class="mdx-image-row-item">/);
+});
+
+void test('markdownToHtml groups plain badge images into a horizontal image row', () => {
+  const html = markdownToHtml(
+    [
+      '![Version](https://img.shields.io/badge/version-blue)',
+      '![License](https://img.shields.io/badge/license-green)',
+      '![Next.js](https://img.shields.io/badge/next-black)',
+    ].join('\n'),
+    '/tmp',
+    [],
+    true,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<div class="mdx-image-row">/);
+  assert.equal((html.match(/<span class="mdx-image-row-item">/g) ?? []).length, 3);
+});
+
+void test('markdownToHtml decorates preview code blocks with language label and copy button', () => {
+  const html = markdownToHtml(
+    [
+      '```bash',
+      'npm run prisma:generate',
+      'npm run prisma:migrate',
+      'npm run dev',
+      '```',
+    ].join('\n'),
+    '/tmp',
+    [],
+    true,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.match(html, /<div class="mdx-code-block">/);
+  assert.match(html, /<span class="mdx-code-language">bash<\/span>/);
+  assert.match(html, /class="mdx-copy-button"/);
+});
+
+void test('markdownToHtml leaves export code blocks without preview copy controls', () => {
+  const html = markdownToHtml(
+    [
+      '```bash',
+      'npm run dev',
+      '```',
+    ].join('\n'),
+    '/tmp',
+    [],
+    false,
+    {
+      allowRawHtml: false,
+    }
+  );
+
+  assert.doesNotMatch(html, /<button type="button" class="mdx-copy-button"/);
+  assert.doesNotMatch(html, /<div class="mdx-code-toolbar">/);
 });
 
 void test('markdownToHtml escapes mermaid source so class diagrams with angle brackets survive HTML parsing', () => {

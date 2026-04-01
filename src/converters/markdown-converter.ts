@@ -136,14 +136,61 @@ function sanitizeRawHtml(content: string): string {
 function decorateImageRows(html: string): string {
   return html.replace(/<p>([\s\S]*?)<\/p>/g, (match, inner: string) => {
     const normalized = inner.trim();
-    const badgeRowPattern =
-      /^(?:\s*(?:<a\b[^>]*>\s*)?<img\b[^>]*>(?:\s*<\/a>)?\s*(?:<br>\s*)?)+$/i;
+    const badgeItemPattern = /(?:<a\b[^>]*>\s*)?<img\b[^>]*>(?:\s*<\/a>)?/gi;
+    const items = Array.from(normalized.matchAll(badgeItemPattern), (matchItem) => matchItem[0].trim());
+    const remainder = normalized
+      .replace(badgeItemPattern, '')
+      .replace(/<br\s*\/?>/gi, '')
+      .trim();
 
-    if (!badgeRowPattern.test(normalized)) {
+    if (items.length < 2 || remainder.length > 0) {
       return match;
     }
 
-    return `<p class="mdx-image-row">${inner}</p>`;
+    const rowContent = items
+      .map((item) => `<span class="mdx-image-row-item">${item}</span>`)
+      .join('');
+
+    return `<div class="mdx-image-row">${rowContent}</div>`;
+  });
+}
+
+function extractCodeLanguage(codeAttributes: string): string {
+  const classMatch = codeAttributes.match(/\bclass="([^"]+)"/i);
+  if (!classMatch) {
+    return '';
+  }
+
+  const classes = classMatch[1].split(/\s+/);
+  const languageClass = classes.find((value) => value.startsWith('language-'));
+  return languageClass ? languageClass.slice('language-'.length) : '';
+}
+
+function decorateCodeBlocks(html: string, isPreview: boolean): string {
+  if (!isPreview) {
+    return html;
+  }
+
+  return html.replace(/<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g, (_match, codeAttributes: string, codeHtml: string) => {
+    const language = extractCodeLanguage(codeAttributes);
+    const languageLabel = language
+      ? `<span class="mdx-code-language">${escapeHtml(language)}</span>`
+      : '<span class="mdx-code-language"></span>';
+
+    return [
+      '<div class="mdx-code-block">',
+      '  <div class="mdx-code-toolbar">',
+      `    ${languageLabel}`,
+      '    <button type="button" class="mdx-copy-button" aria-label="Copy code block" title="Copy code block">',
+      '      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
+      '        <path d="M9 9h9v11H9z"></path>',
+      '        <path d="M6 4h9v2H8v11H6z"></path>',
+      '      </svg>',
+      '    </button>',
+      '  </div>',
+      `  <pre><code${codeAttributes}>${codeHtml}</code></pre>`,
+      '</div>',
+    ].join('\n');
   });
 }
 
@@ -207,7 +254,10 @@ export function markdownToHtml(
 
   const scriptNonceAttr = getNonceAttr(htmlOptions?.scriptNonce);
   const styleNonceAttr = getNonceAttr(htmlOptions?.styleNonce);
-  const htmlContent = decorateImageRows(markdownParserWithHtml.render(processedContent));
+  const htmlContent = decorateCodeBlocks(
+    decorateImageRows(markdownParserWithHtml.render(processedContent)),
+    isPreview
+  );
 
   // Load local Mermaid bundle when available to avoid CDN dependency.
   const mermaidScriptTag = getMermaidScriptTag(htmlOptions?.scriptNonce);
@@ -511,6 +561,57 @@ export function markdownToHtml(
         }
       };
 
+      const copyTextToClipboard = async (value) => {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(value);
+          return;
+        }
+
+        const textArea = document.createElement('textarea');
+        textArea.value = value;
+        textArea.setAttribute('readonly', '');
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      };
+
+      const initCopyButtons = () => {
+        const buttons = Array.from(document.querySelectorAll('.mdx-copy-button'));
+        for (const button of buttons) {
+          if (button.dataset.bound === 'true') {
+            continue;
+          }
+          button.dataset.bound = 'true';
+
+          button.addEventListener('click', async () => {
+            const codeBlock = button.closest('.mdx-code-block');
+            const code = codeBlock ? codeBlock.querySelector('pre > code') : null;
+            const text = code ? code.textContent ?? '' : '';
+            if (!text) {
+              return;
+            }
+
+            try {
+              await copyTextToClipboard(text);
+              const defaultTitle = 'Copy code block';
+              button.classList.add('copied');
+              button.setAttribute('aria-label', 'Copied');
+              button.setAttribute('title', 'Copied');
+              window.setTimeout(() => {
+                button.classList.remove('copied');
+                button.setAttribute('aria-label', defaultTitle);
+                button.setAttribute('title', defaultTitle);
+              }, 1200);
+            } catch {
+              button.setAttribute('title', 'Copy failed');
+            }
+          });
+        }
+      };
+
       const scheduleMermaidRender = () => {
         clearTimeout(rerenderTimer);
         rerenderTimer = setTimeout(() => {
@@ -519,8 +620,12 @@ export function markdownToHtml(
       };
 
       if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', scheduleMermaidRender, { once: true });
+        document.addEventListener('DOMContentLoaded', () => {
+          initCopyButtons();
+          scheduleMermaidRender();
+        }, { once: true });
       } else {
+        initCopyButtons();
         scheduleMermaidRender();
       }
 
@@ -594,6 +699,62 @@ export function markdownToHtml(
       padding: 1em;
       border-radius: 5px;
       ${preExtraStyle}
+    }
+    .mdx-code-block {
+      margin: 1em 0;
+      border: 1px solid color-mix(in srgb, var(--vscode-textSeparator-foreground) 45%, transparent);
+      border-radius: 10px;
+      background-color: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-textCodeBlock-background) 12%);
+      overflow: hidden;
+    }
+    .mdx-code-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0.55em 0.75em 0.25em;
+      font-size: 0.78em;
+      color: color-mix(in srgb, var(--vscode-foreground) 72%, transparent);
+      text-transform: lowercase;
+      letter-spacing: 0.08em;
+    }
+    .mdx-code-language {
+      min-height: 1em;
+      font-family: var(--vscode-editor-font-family, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
+    }
+    .mdx-copy-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid color-mix(in srgb, var(--vscode-textSeparator-foreground) 45%, transparent);
+      border-radius: 7px;
+      background: transparent;
+      color: color-mix(in srgb, var(--vscode-foreground) 76%, transparent);
+      cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+    .mdx-copy-button:hover {
+      background-color: color-mix(in srgb, var(--vscode-textCodeBlock-background) 70%, transparent);
+      border-color: color-mix(in srgb, var(--vscode-textSeparator-foreground) 75%, transparent);
+      color: var(--vscode-foreground);
+    }
+    .mdx-copy-button.copied {
+      color: #22c55e;
+      border-color: color-mix(in srgb, #22c55e 75%, transparent);
+    }
+    .mdx-copy-button svg {
+      width: 15px;
+      height: 15px;
+      fill: currentColor;
+    }
+    .mdx-code-block pre {
+      margin: 0;
+      border-radius: 0;
+      background: transparent;
+      padding-top: 0.5em;
     }
     pre code {
       background: none;
@@ -789,7 +950,7 @@ export function markdownToHtml(
     [align="left"] {
       text-align: left;
     }
-    p.mdx-image-row,
+    .mdx-image-row,
     p:has(> img),
     p:has(> a > img) {
       display: flex;
@@ -797,22 +958,28 @@ export function markdownToHtml(
       justify-content: center;
       align-items: center;
       gap: 10px;
+      margin: 1em auto;
     }
-    p.mdx-image-row br,
+    .mdx-image-row br,
     p:has(> img) br,
     p:has(> a > img) br {
       display: none;
     }
-    p.mdx-image-row a,
+    .mdx-image-row a,
     p:has(> img) a,
     p:has(> a > img) a {
       display: inline-flex;
       align-items: center;
     }
-    p.mdx-image-row img,
+    .mdx-image-row img,
     p:has(> img) img,
     p:has(> a > img) img {
       display: block;
+    }
+    .mdx-image-row-item {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     details {
       margin: 1em 0;
