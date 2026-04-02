@@ -285,6 +285,10 @@ export function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function encodeHtmlDataValue(input: string): string {
+  return Buffer.from(input, 'utf-8').toString('base64');
+}
+
 function normalizePlantUmlServerUrl(serverUrl?: string): string | null {
   const normalized = serverUrl?.trim() ?? '';
   if (!normalized) {
@@ -349,7 +353,7 @@ function sanitizeRawHtml(content: string): string {
     allowedTags: [...allowedTags],
     allowedAttributes: {
       // eslint-disable-next-line @typescript-eslint/naming-convention
-      '*': ['id', 'class', 'title', 'lang', 'dir', 'align', 'data-mdx-mermaid'],
+      '*': ['id', 'class', 'title', 'lang', 'dir', 'align', 'data-mdx-mermaid', 'data-mdx-mermaid-source'],
       a: ['href', 'name', 'target', 'rel', 'title'],
       img: ['src', 'alt', 'title', 'width', 'height', 'align'],
       div: ['align'],
@@ -595,8 +599,11 @@ export function markdownToHtml(
   // Process mermaid code blocks
   let processedContent = content.replace(
     /```mermaid\n([\s\S]*?)```/g,
-    (_match, mermaidCode: string) =>
-      `<div class="mermaid" data-mdx-mermaid="true">${escapeHtml(mermaidCode.trim())}</div>`
+    (_match, mermaidCode: string) => {
+      const source = mermaidCode.trim();
+      const encodedSource = encodeHtmlDataValue(source);
+      return `<div class="mermaid" data-mdx-mermaid="true" data-mdx-mermaid-source="${escapeHtml(encodedSource)}">${escapeHtml(source)}</div>`;
+    }
   );
 
   const plantUmlServerUrl = htmlOptions?.plantUmlServerUrl ?? 'https://www.plantuml.com/plantuml';
@@ -683,6 +690,22 @@ export function markdownToHtml(
       const MERMAID_SELECTOR = '.mermaid[data-mdx-mermaid="true"]';
       let renderVersion = 0;
       let rerenderTimer = null;
+
+      const decodeMermaidSource = (value) => {
+        if (!value) {
+          return '';
+        }
+
+        try {
+          return decodeURIComponent(
+            Array.prototype.map
+              .call(atob(value), (char) => '%' + char.charCodeAt(0).toString(16).padStart(2, '0'))
+              .join('')
+          );
+        } catch (_error) {
+          return '';
+        }
+      };
 
       const readThemeVar = (name, fallback) => {
         const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -912,7 +935,10 @@ export function markdownToHtml(
 
         for (let index = 0; index < blocks.length; index++) {
           const block = blocks[index];
-          const source = block.dataset.mermaidSource ?? block.textContent ?? '';
+          const encodedSource =
+            block.getAttribute('data-mdx-mermaid-source') ?? block.dataset.mdxMermaidSource ?? '';
+          const source =
+            decodeMermaidSource(encodedSource) || block.dataset.mermaidSource || block.textContent || '';
           block.dataset.mermaidSource = source;
           block.removeAttribute('data-processed');
 

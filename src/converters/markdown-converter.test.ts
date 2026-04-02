@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import puppeteer from 'puppeteer-core';
 import { getMermaidScriptTag, markdownToHtml } from './markdown-converter';
 import { findChromePath, resolveChromePathCandidates } from './chrome-path';
 import { docxToMarkdown, markdownToDocx } from './index';
@@ -359,7 +360,10 @@ void test('markdownToHtml escapes mermaid source so class diagrams with angle br
     }
   );
 
-  assert.match(html, /<div class="mermaid" data-mdx-mermaid="true">/);
+  assert.match(
+    html,
+    /<div class="mermaid" data-mdx-mermaid="true" data-mdx-mermaid-source="[^"]+">/
+  );
   assert.match(html, /Animal &lt;\|-- Dog/);
   assert.match(html, /const MERMAID_SELECTOR = '\.mermaid\[data-mdx-mermaid="true"\]';/);
 });
@@ -427,6 +431,59 @@ void test('markdownToDocx and docxToMarkdown round-trip core text content', asyn
 });
 
 const chromePath = findChromePath();
+
+void test(
+  'preview-mode mermaid blocks render to SVG in browser without leaking raw CSS or syntax errors',
+  { skip: !chromePath },
+  async () => {
+    const markdown = fs.readFileSync(path.join(process.cwd(), 'preview-showcase.md'), 'utf-8');
+    const html = markdownToHtml(markdown, process.cwd(), [], true, {
+      allowRawHtml: false,
+    });
+
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      executablePath: chromePath,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      await page.waitForFunction(
+        () => {
+          const mermaidBlocks = Array.from(
+            document.querySelectorAll('.mermaid[data-mdx-mermaid="true"]')
+          );
+          return (
+            mermaidBlocks.length > 0 &&
+            mermaidBlocks.every((block) => block.querySelector('svg'))
+          );
+        },
+        { timeout: 10000 }
+      );
+
+      const diagnostics = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('.mermaid[data-mdx-mermaid="true"]')).map((block) => ({
+          text: (block.textContent || '').trim(),
+          innerHtml: block.innerHTML,
+          hasSvg: Boolean(block.querySelector('svg')),
+        }))
+      );
+
+      assert.ok(diagnostics.length >= 5);
+      for (const diagnostic of diagnostics) {
+        assert.equal(diagnostic.hasSvg, true);
+        assert.doesNotMatch(diagnostic.text, /Syntax error in text/i);
+        assert.doesNotMatch(diagnostic.text, /mermaid version/i);
+        assert.doesNotMatch(diagnostic.text, /#mermaid-\d+\{/i);
+        assert.match(diagnostic.innerHtml, /<svg[\s>]/i);
+      }
+    } finally {
+      await browser.close();
+    }
+  }
+);
 
 void test(
   'htmlToImage exports preview-grade markdown to png',
