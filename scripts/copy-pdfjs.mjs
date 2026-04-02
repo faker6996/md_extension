@@ -6,6 +6,7 @@ async function main() {
   const repoRoot = process.cwd();
   const sourceDir = path.join(repoRoot, 'node_modules', 'pdfjs-dist', 'build');
   const destDir = path.join(repoRoot, 'out', 'pdfjs');
+  const mermaidDestDir = path.join(repoRoot, 'out', 'mermaid');
 
   await build({
     entryPoints: [path.join(sourceDir, 'pdf.min.mjs')],
@@ -50,6 +51,12 @@ async function main() {
   // Clean up old copied artifacts (from previous versions of this script)
   await fs.rm(path.join(destDir, 'pdf.min.mjs'), { force: true });
   await fs.rm(path.join(destDir, 'pdf.worker.min.mjs'), { force: true });
+
+  await fs.mkdir(mermaidDestDir, { recursive: true });
+  await fs.copyFile(
+    path.join(repoRoot, 'node_modules', 'mermaid', 'dist', 'mermaid.min.js'),
+    path.join(mermaidDestDir, 'mermaid.min.js')
+  );
 }
 
 await main();

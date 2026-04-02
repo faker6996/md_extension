@@ -537,22 +537,41 @@ function getNonceAttr(nonce?: string): string {
   return nonce ? ` nonce="${nonce}"` : '';
 }
 
+function getBundledMermaidPathCandidates(): string[] {
+  return [
+    path.join(__dirname, 'mermaid', 'mermaid.min.js'),
+    path.join(__dirname, '..', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js'),
+  ];
+}
+
+function getPinnedMermaidCdnUrl(): string {
+  try {
+    const extensionPackageJsonPath = path.join(__dirname, '..', 'package.json');
+    const extensionPackage = JSON.parse(fs.readFileSync(extensionPackageJsonPath, 'utf-8')) as {
+      dependencies?: Record<string, string>;
+    };
+    const rawVersion = extensionPackage.dependencies?.mermaid ?? '';
+    const normalizedVersion = rawVersion.replace(/^[^\d]*/, '');
+    if (normalizedVersion) {
+      return `https://cdn.jsdelivr.net/npm/mermaid@${normalizedVersion}/dist/mermaid.min.js`;
+    }
+  } catch {
+    // Fall back to a pinned known-good version if package metadata is unavailable.
+  }
+
+  return 'https://cdn.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js';
+}
+
 export function getMermaidScriptTag(scriptNonce?: string): string {
   const nonceAttr = getNonceAttr(scriptNonce);
-  let mermaidScriptTag =
-    `<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"${nonceAttr}></script>`;
+  let mermaidScriptTag = `<script src="${getPinnedMermaidCdnUrl()}"${nonceAttr}></script>`;
   try {
-    const mermaidPath = path.join(
-      __dirname,
-      '..',
-      'node_modules',
-      'mermaid',
-      'dist',
-      'mermaid.min.js'
-    );
-    if (fs.existsSync(mermaidPath)) {
-      const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
-      mermaidScriptTag = `<script${nonceAttr}>${mermaidScript}</script>`;
+    for (const mermaidPath of getBundledMermaidPathCandidates()) {
+      if (fs.existsSync(mermaidPath)) {
+        const mermaidScript = fs.readFileSync(mermaidPath, 'utf-8');
+        mermaidScriptTag = `<script${nonceAttr}>${mermaidScript}</script>`;
+        break;
+      }
     }
   } catch {
     // Fall back to CDN if local bundle can't be loaded.

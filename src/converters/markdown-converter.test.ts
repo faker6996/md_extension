@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { markdownToHtml } from './markdown-converter';
+import { getMermaidScriptTag, markdownToHtml } from './markdown-converter';
 import { findChromePath, resolveChromePathCandidates } from './chrome-path';
 import { docxToMarkdown, markdownToDocx } from './index';
 import {
@@ -154,6 +154,13 @@ void test('markdownToHtml injects script/style nonce attributes when provided', 
 
   assert.match(html, /<style nonce="nonce-123">/);
   assert.match(html, /<script[^>]*nonce="nonce-123"/);
+});
+
+void test('getMermaidScriptTag avoids unpinned Mermaid CDN fallback', () => {
+  const scriptTag = getMermaidScriptTag('nonce-xyz');
+  assert.match(scriptTag, /nonce="nonce-xyz"/);
+  assert.match(scriptTag, /mermaid/);
+  assert.doesNotMatch(scriptTag, /cdn\.jsdelivr\.net\/npm\/mermaid\/dist\/mermaid\.min\.js/);
 });
 
 void test('markdownToHtml uses configured PlantUML server URL', () => {
