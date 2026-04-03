@@ -79,6 +79,26 @@
         "icon": "$(file-media)"
       }
     ],
+    "keybindings": [
+      {
+        "command": "mdxExporter.openPreviewToSide",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
+        "when": "editorTextFocus && editorLangId == markdown"
+      },
+      {
+        "command": "mdxExporter.quickExportPdf",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p",
+        "when": "editorTextFocus && editorLangId == markdown"
+      },
+      {
+        "command": "mdxExporter.quickExportDocx",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d",
+        "when": "editorTextFocus && editorLangId == markdown"
+      }
+    ],
     "menus": {
       "commandPalette": [
         {

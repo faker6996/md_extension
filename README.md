@@ -8,7 +8,7 @@ A lightweight VS Code extension for previewing, exporting, and converting Markdo
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-007ACC?style=for-the-badge&logo=visual-studio-code&logoColor=white)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-0.3.24-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/visual-studio-marketplace/v/bachtv.mdx-exporter-lite?style=for-the-badge&label=Version&color=8b5cf6)](https://marketplace.visualstudio.com/items?itemName=bachtv.mdx-exporter-lite)
 
 **Export to PDF** · **Export to DOCX** · **Export to PNG/JPEG** · **Built-in PDF Viewer** · **Live Preview**
 
@@ -34,7 +34,7 @@ A lightweight VS Code extension for previewing, exporting, and converting Markdo
 ```
 1. Install the extension from VS Code Marketplace
 2. Open any .md file
-3. Use Ctrl+Shift+P → type "MDX" → pick a command
+3. Use `Ctrl+K V` / `Cmd+K V` for preview, or `Ctrl+Shift+P` → type "MDX"
 4. Done! 🎉
 ```
 
@@ -101,17 +101,17 @@ A lightweight VS Code extension for previewing, exporting, and converting Markdo
 
 | Command                         | Description                      | Shortcut |
 | ------------------------------- | -------------------------------- | -------- |
-| `MDX: Open Preview to Side`     | Live Markdown preview panel      | —        |
+| `MDX: Open Preview to Side`     | Live Markdown preview panel      | `Ctrl+K V` / `Cmd+K V` |
 | `MDX: Export to PDF`            | Export with save dialog          | —        |
-| `MDX: Quick Export to PDF`      | Export to default path instantly | —        |
+| `MDX: Quick Export to PDF`      | Export to default path instantly | `Ctrl+Alt+P` / `Cmd+Alt+P` |
 | `MDX: Export to DOCX`           | Export as Word document          | —        |
-| `MDX: Quick Export to DOCX`     | Quick export Word doc            | —        |
+| `MDX: Quick Export to DOCX`     | Quick export Word doc            | `Ctrl+Alt+D` / `Cmd+Alt+D` |
 | `MDX: Export to PNG`            | Export as PNG image              | —        |
 | `MDX: Export to JPEG`           | Export as JPEG image             | —        |
 | `MDX: Convert DOCX to PDF`      | Convert `.docx` → `.pdf`         | —        |
 | `MDX: Convert DOCX to Markdown` | Convert `.docx` → `.md`          | —        |
 
-> 💡 **Tip:** Access commands via **Command Palette** (`Ctrl+Shift+P`), **editor title bar icons**, **right-click context menu**, or **Explorer sidebar context menu**.
+> 💡 **Tip:** The preview shortcut follows the familiar VS Code Markdown convention. The two quick-export shortcuts are bound by default; the rest stay unbound to keep conflicts low and can be customized in **Keyboard Shortcuts**.
 
 ---
 
