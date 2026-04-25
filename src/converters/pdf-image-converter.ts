@@ -23,6 +23,9 @@ export interface ImageOptions {
 }
 
 const BROWSER_IDLE_TIMEOUT_MS = 15_000;
+const CONTENT_LOAD_TIMEOUT_MS = 10_000;
+const RESOURCE_SETTLE_TIMEOUT_MS = 5_000;
+const RENDER_STABILIZATION_DELAY_MS = 300;
 
 let sharedBrowserPromise: Promise<Browser> | null = null;
 let sharedBrowserPath: string | null = null;
@@ -72,15 +75,18 @@ async function getSharedBrowser(chromePath: string): Promise<Browser> {
   sharedBrowserPath = chromePath;
   const browserSerial = ++sharedBrowserSerialCounter;
   currentSharedBrowserSerial = browserSerial;
-  sharedBrowserPromise = puppeteer.launch(buildLaunchOptions(chromePath)).then((browser) => {
-    browser.once('disconnected', () => {
+  sharedBrowserPromise = puppeteer
+    .launch(buildLaunchOptions(chromePath))
+    .then((browser) => {
+      browser.once('disconnected', () => {
+        resetSharedBrowserState();
+      });
+      return browser;
+    })
+    .catch((error: unknown) => {
       resetSharedBrowserState();
+      throw error;
     });
-    return browser;
-  }).catch((error: unknown) => {
-    resetSharedBrowserState();
-    throw error;
-  });
 
   return await sharedBrowserPromise;
 }
@@ -126,7 +132,9 @@ function releaseSharedBrowser(browser: Browser): void {
   scheduleSharedBrowserClose();
 }
 
-async function createExportPage(browserExecutablePath?: string): Promise<{ browser: Browser; page: Page }> {
+async function createExportPage(
+  browserExecutablePath?: string
+): Promise<{ browser: Browser; page: Page }> {
   const chromePath = findChromePath(browserExecutablePath);
 
   if (!chromePath) {
@@ -210,6 +218,55 @@ async function waitForMermaidRender(page: Page, timeoutMs: number = 10000): Prom
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function setExportContent(page: Page, html: string): Promise<void> {
+  await page.setContent(html, {
+    waitUntil: 'domcontentloaded',
+    timeout: CONTENT_LOAD_TIMEOUT_MS,
+  });
+}
+
+async function waitForFontsAndImages(
+  page: Page,
+  timeoutMs: number = RESOURCE_SETTLE_TIMEOUT_MS
+): Promise<void> {
+  try {
+    await page.evaluate(async (resourceTimeoutMs) => {
+      const timeout = new Promise<void>((resolve) => {
+        window.setTimeout(resolve, resourceTimeoutMs);
+      });
+
+      const waitForResources = async (): Promise<void> => {
+        await document.fonts?.ready.catch(() => undefined);
+
+        const pendingImages = Array.from(document.images).filter((image) => !image.complete);
+        await Promise.all(
+          pendingImages.map(
+            (image) =>
+              new Promise<void>((resolve) => {
+                const done = (): void => resolve();
+                image.addEventListener('load', done, { once: true });
+                image.addEventListener('error', done, { once: true });
+              })
+          )
+        );
+      };
+
+      await Promise.race([waitForResources(), timeout]);
+    }, timeoutMs);
+  } catch {
+    // Exports should continue if non-critical resources keep loading or fail.
+  }
+}
+
+async function waitForExportRenderReady(page: Page): Promise<void> {
+  await Promise.all([waitForMermaidRender(page), waitForFontsAndImages(page)]);
+  await delay(RENDER_STABILIZATION_DELAY_MS);
+}
+
 // Convert HTML to PDF using Puppeteer
 export async function htmlToPdf(
   html: string,
@@ -224,12 +281,8 @@ export async function htmlToPdf(
     browser = resources.browser;
     page = resources.page;
 
-    await page.setContent(html, {
-      waitUntil: 'networkidle0',
-    });
-
-    await waitForMermaidRender(page);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await setExportContent(page, html);
+    await waitForExportRenderReady(page);
 
     let headerTemplate = options.headerTemplate || '';
     let footerTemplate = options.footerTemplate || '';
@@ -286,12 +339,8 @@ export async function htmlToImage(
     page = resources.page;
     await page.setViewport({ width: 1200, height: 800 });
 
-    await page.setContent(html, {
-      waitUntil: 'networkidle0',
-    });
-
-    await waitForMermaidRender(page);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await setExportContent(page, html);
+    await waitForExportRenderReady(page);
 
     await page.screenshot({
       path: outputPath,
