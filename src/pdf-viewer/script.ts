@@ -36,6 +36,219 @@ export function buildPdfViewerScript(pdfUri: string, pdfWorkerUri: string): stri
       updateMatchesCountOnProgress: true,
     });
 
+    class FallbackTextHighlighter {
+      constructor({ findController, eventBus, pageIndex }) {
+        this.findController = findController;
+        this.eventBus = eventBus;
+        this.pageIdx = pageIndex;
+        this.textDivs = null;
+        this.textContentItemsStr = null;
+        this.enabled = false;
+        this.abortController = null;
+      }
+
+      setTextMapping(divs, texts) {
+        this.textDivs = divs;
+        this.textContentItemsStr = texts;
+      }
+
+      enable() {
+        if (!this.textDivs || !this.textContentItemsStr || this.enabled) {
+          return;
+        }
+
+        this.enabled = true;
+        this.abortController = new AbortController();
+        const handler = (evt) => {
+          if (evt.pageIndex === this.pageIdx || evt.pageIndex === -1) {
+            this.updateMatches();
+          }
+        };
+
+        if (typeof this.eventBus._on === 'function') {
+          this.eventBus._on('updatetextlayermatches', handler, {
+            signal: this.abortController.signal,
+          });
+        } else {
+          this.eventBus.on('updatetextlayermatches', handler);
+        }
+
+        this.updateMatches();
+      }
+
+      disable() {
+        if (!this.enabled) {
+          return;
+        }
+
+        this.enabled = false;
+        this.abortController?.abort();
+        this.abortController = null;
+        this.restoreText();
+      }
+
+      restoreText() {
+        if (!this.textDivs || !this.textContentItemsStr) {
+          return;
+        }
+
+        for (let index = 0; index < this.textDivs.length; index++) {
+          this.textDivs[index].textContent = this.textContentItemsStr[index];
+          this.textDivs[index].className = '';
+        }
+      }
+
+      convertMatches(pageMatches, pageMatchesLength) {
+        if (!pageMatches || !pageMatchesLength || !this.textContentItemsStr) {
+          return [];
+        }
+
+        const matches = [];
+        let divIdx = 0;
+        let divStart = 0;
+        const lastDivIdx = this.textContentItemsStr.length - 1;
+
+        for (let matchIndex = 0; matchIndex < pageMatches.length; matchIndex++) {
+          let start = pageMatches[matchIndex];
+          let end = start + pageMatchesLength[matchIndex];
+
+          while (divIdx < lastDivIdx && start >= divStart + this.textContentItemsStr[divIdx].length) {
+            divStart += this.textContentItemsStr[divIdx].length;
+            divIdx++;
+          }
+
+          const begin = { divIdx, offset: start - divStart };
+          while (divIdx < lastDivIdx && end > divStart + this.textContentItemsStr[divIdx].length) {
+            divStart += this.textContentItemsStr[divIdx].length;
+            divIdx++;
+          }
+
+          matches.push({ begin, end: { divIdx, offset: end - divStart } });
+        }
+
+        return matches;
+      }
+
+      appendText(divIdx, fromOffset, toOffset, className) {
+        const div = this.textDivs[divIdx];
+        const text = this.textContentItemsStr[divIdx].slice(fromOffset, toOffset);
+        const node = document.createTextNode(text);
+
+        if (!className) {
+          div.append(node);
+          return 0;
+        }
+
+        const span = document.createElement('span');
+        span.className = className + ' appended';
+        span.append(node);
+        div.append(span);
+
+        if (className.includes('selected')) {
+          const rect = span.getClientRects()[0];
+          const parentRect = div.getBoundingClientRect();
+          return rect ? rect.left - parentRect.left : 0;
+        }
+
+        return 0;
+      }
+
+      renderMatches(matches) {
+        const selected = this.findController.selected ?? { pageIdx: -1, matchIdx: -1 };
+        const highlightAll = Boolean(this.findController.state?.highlightAll);
+        const isSelectedPage = selected.pageIdx === this.pageIdx;
+        const firstMatch = highlightAll ? 0 : selected.matchIdx;
+        const lastMatch = highlightAll ? matches.length : selected.matchIdx + 1;
+
+        if (!highlightAll && !isSelectedPage) {
+          return;
+        }
+
+        for (let matchIndex = firstMatch; matchIndex < lastMatch; matchIndex++) {
+          const match = matches[matchIndex];
+          if (!match) {
+            continue;
+          }
+
+          const isSelected = isSelectedPage && matchIndex === selected.matchIdx;
+          const suffix = isSelected ? ' selected' : '';
+          let selectedLeft = 0;
+
+          if (match.begin.divIdx === match.end.divIdx) {
+            const div = this.textDivs[match.begin.divIdx];
+            div.textContent = '';
+            this.appendText(match.begin.divIdx, 0, match.begin.offset);
+            selectedLeft = this.appendText(
+              match.begin.divIdx,
+              match.begin.offset,
+              match.end.offset,
+              'highlight' + suffix
+            );
+            this.appendText(
+              match.begin.divIdx,
+              match.end.offset,
+              this.textContentItemsStr[match.begin.divIdx].length
+            );
+          } else {
+            const startDiv = this.textDivs[match.begin.divIdx];
+            startDiv.textContent = '';
+            this.appendText(match.begin.divIdx, 0, match.begin.offset);
+            selectedLeft = this.appendText(
+              match.begin.divIdx,
+              match.begin.offset,
+              this.textContentItemsStr[match.begin.divIdx].length,
+              'highlight begin' + suffix
+            );
+
+            for (let divIdx = match.begin.divIdx + 1; divIdx < match.end.divIdx; divIdx++) {
+              this.textDivs[divIdx].className = 'highlight middle' + suffix;
+            }
+
+            const endDiv = this.textDivs[match.end.divIdx];
+            endDiv.textContent = '';
+            this.appendText(match.end.divIdx, 0, match.end.offset, 'highlight end' + suffix);
+            this.appendText(
+              match.end.divIdx,
+              match.end.offset,
+              this.textContentItemsStr[match.end.divIdx].length
+            );
+          }
+
+          if (isSelected) {
+            this.findController.scrollMatchIntoView({
+              element: this.textDivs[match.begin.divIdx],
+              selectedLeft,
+              pageIndex: this.pageIdx,
+              matchIndex,
+            });
+          }
+        }
+      }
+
+      updateMatches() {
+        if (!this.enabled || !this.findController?.highlightMatches) {
+          this.restoreText();
+          return;
+        }
+
+        this.restoreText();
+        const matches = this.convertMatches(
+          this.findController.pageMatches?.[this.pageIdx],
+          this.findController.pageMatchesLength?.[this.pageIdx]
+        );
+        this.renderMatches(matches);
+      }
+    }
+
+    function createTextHighlighter(viewer, pageIndex) {
+      const Highlighter = viewer.TextHighlighter ?? FallbackTextHighlighter;
+      return new Highlighter({
+        findController,
+        eventBus,
+        pageIndex,
+      });
+    }
+
     const container = document.getElementById('container');
     const loading = document.getElementById('loading');
     const currentPageSpan = document.getElementById('currentPage');
@@ -99,18 +312,19 @@ export function buildPdfViewerScript(pdfUri: string, pdfWorkerUri: string): stri
         }
 
         const viewer = window.pdfjsViewer;
-        if (viewer && viewer.TextLayerBuilder && viewer.TextHighlighter) {
-          const highlighter = new viewer.TextHighlighter({
-            findController,
-            eventBus,
-            pageIndex: pageNum - 1,
-          });
+        if (viewer && viewer.TextLayerBuilder) {
+          const highlighter = createTextHighlighter(viewer, pageNum - 1);
           const textLayerBuilder = new viewer.TextLayerBuilder({
             pdfPage: page,
             highlighter,
-            onAppend: (layerDiv) => pageEl.appendChild(layerDiv),
+            onAppend: (layerDiv) => {
+              layerDiv.style.width = viewport.width + 'px';
+              layerDiv.style.height = viewport.height + 'px';
+              pageEl.appendChild(layerDiv);
+            },
           });
           await textLayerBuilder.render({ viewport });
+          pageEl.classList.add('text-layer-ready');
         }
 
         canvas.dataset.renderedScale = String(scale);

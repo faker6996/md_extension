@@ -25,6 +25,7 @@ export const viewerStyles = `
     padding: 0 16px;
     gap: 12px;
     z-index: 100;
+    user-select: none;
   }
 
   .toolbar button {
@@ -72,6 +73,7 @@ export const viewerStyles = `
     color: #d4d4d4;
     font-size: 13px;
     width: 150px;
+    user-select: text;
   }
 
   .search-box input:focus {
@@ -108,17 +110,35 @@ export const viewerStyles = `
     --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
     --scale-round-x: 1px;
     --scale-round-y: 1px;
+    user-select: text;
   }
 
   .page-container .textLayer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     z-index: 2;
     pointer-events: auto;
+    user-select: text;
+    cursor: text;
+  }
+
+  .page-container .textLayer span,
+  .page-container .textLayer br {
+    user-select: text;
+  }
+
+  .page-container .textLayer .endOfContent {
+    user-select: none;
   }
 
   .page-container canvas {
     position: relative;
     z-index: 1;
     display: block;
+    pointer-events: none;
+    user-select: none;
   }
 
   .loading {
